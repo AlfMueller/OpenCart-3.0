@@ -1,4 +1,5 @@
-<?php
+declare(strict_types=1);
+
 /**
  * Wallee OpenCart
  *
@@ -23,23 +24,27 @@ namespace Wallee\Entity;
  * @method void setConfigurationId(int $id)
  * @method string getConfigurationName()
  * @method void setConfigurationName(string $name)
- * @method string[] getTitle()
- * @method void setTitle(string[] $title)
- * @method string[] getDescription()
- * @method void setDescription(string[] $description)
+ * @method array<string, string> getTitle()
+ * @method void setTitle(array<string, string> $title)
+ * @method array<string, string> getDescription()
+ * @method void setDescription(array<string, string> $description)
  * @method string getImage()
  * @method void setImage(string $image)
  * @method int getSortOrder()
  * @method void setSortOrder(int $sortOrder)
- *
  */
 class MethodConfiguration extends AbstractEntity {
-	const STATE_ACTIVE = 'active';
-	const STATE_INACTIVE = 'inactive';
-	const STATE_HIDDEN = 'hidden';
+	public const STATE_ACTIVE = 'active';
+	public const STATE_INACTIVE = 'inactive';
+	public const STATE_HIDDEN = 'hidden';
 
-	protected static function getFieldDefinition(){
-		return array(
+	/**
+	 * Returns the field definitions for the entity.
+	 *
+	 * @return array<string, string>
+	 */
+	protected static function getFieldDefinition(): array {
+		return [
 			'state' => ResourceType::STRING,
 			'space_id' => ResourceType::INTEGER,
 			'configuration_id' => ResourceType::INTEGER,
@@ -47,45 +52,72 @@ class MethodConfiguration extends AbstractEntity {
 			'sort_order' => ResourceType::INTEGER,
 			'title' => ResourceType::OBJECT,
 			'description' => ResourceType::OBJECT,
-			'image' => ResourceType::STRING 
-		);
+			'image' => ResourceType::STRING
+		];
 	}
 
-	protected static function getTableName(){
+	/**
+	 * Returns the table name for the entity.
+	 *
+	 * @return string
+	 */
+	protected static function getTableName(): string {
 		return 'wallee_method_configuration';
 	}
 
-	public static function loadByConfiguration(\Registry $registry, $space_id, $configuration_id){
+	/**
+	 * Loads a method configuration by its configuration data.
+	 *
+	 * @param \Registry $registry
+	 * @param int $space_id
+	 * @param int $configuration_id
+	 * @return static
+	 */
+	public static function loadByConfiguration(\Registry $registry, int $space_id, int $configuration_id): static {
 		$db = $registry->get('db');
 		
-		$table = DB_PREFIX . self::getTableName();
-		$space_id = $db->escape($space_id);
-		$configuration_id = $db->escape($configuration_id);
-		$query = "SELECT * FROM $table WHERE space_id='$space_id' AND configuration_id='$configuration_id'";
+		$query = sprintf(
+			'SELECT * FROM %s%s WHERE space_id = %d AND configuration_id = %d;',
+			DB_PREFIX,
+			static::getTableName(),
+			$space_id,
+			$configuration_id
+		);
 		
-		$result = self::query($query, $db);
-		
+		$result = static::query($query, $db);
 		if (isset($result->row) && !empty($result->row)) {
-			return new self($registry, $result->row);
+			return new static($registry, $result->row);
 		}
-		return new self($registry);
+		
+		return new static($registry);
 	}
 
-	public static function loadBySpaceId(\Registry $registry, $space_id){
+	/**
+	 * Loads all method configurations for a space.
+	 *
+	 * @param \Registry $registry
+	 * @param int $space_id
+	 * @return array<static>
+	 */
+	public static function loadBySpaceId(\Registry $registry, int $space_id): array {
 		$db = $registry->get('db');
 		
-		$table = DB_PREFIX . self::getTableName();
-		$space_id = $db->escape($space_id);
-		$query = "SELECT * FROM $table WHERE space_id='$space_id'";
+		$query = sprintf(
+			'SELECT * FROM %s%s WHERE space_id = %d;',
+			DB_PREFIX,
+			static::getTableName(),
+			$space_id
+		);
 		
-		$db_result = self::query($query, $db);
+		$db_result = static::query($query, $db);
 		
-		$result = array();
+		$result = [];
 		if ($db_result->num_rows) {
 			foreach ($db_result->rows as $row) {
 				$result[] = new static($registry, $row);
 			}
 		}
+		
 		return $result;
 	}
 }

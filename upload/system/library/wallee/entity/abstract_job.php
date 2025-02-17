@@ -1,4 +1,6 @@
 <?php
+declare(strict_types=1);
+
 /**
  * Wallee OpenCart
  *
@@ -11,8 +13,11 @@
 
 namespace Wallee\Entity;
 
+use DateTime;
+use DateInterval;
+
 /**
- * This entity holds data about a transaction on the gateway.
+ * This entity holds data about a job in the system.
  *
  * @method int getId()
  * @method int getJobId()
@@ -25,37 +30,42 @@ namespace Wallee\Entity;
  * @method void setTransactionId(int $id)
  * @method int getOrderId()
  * @method void setOrderId(int $id)
- * @method void setFailureReason(map[string,string] $reasons)
- * @method map[string,string] getLabels()
- * @method void setLabels(map[string,string] $labels)
- *
+ * @method array<string, string>|null getFailureReason()
+ * @method void setFailureReason(array<string, string> $reasons)
+ * @method array<string, string> getLabels()
+ * @method void setLabels(array<string, string> $labels)
  */
 abstract class AbstractJob extends AbstractEntity {
-	const STATE_CREATED = 'CREATED';
-	const STATE_SENT = 'SENT';
-	const STATE_SUCCESS = 'SUCCESS';
-	const STATE_FAILED_CHECK = 'FAILED_CHECK';
-	const STATE_FAILED_DONE = 'FAILED_DONE';
+	public const STATE_CREATED = 'CREATED';
+	public const STATE_SENT = 'SENT';
+	public const STATE_SUCCESS = 'SUCCESS';
+	public const STATE_FAILED_CHECK = 'FAILED_CHECK';
+	public const STATE_FAILED_DONE = 'FAILED_DONE';
 
-	protected static function getFieldDefinition(){
-		return array(
+	/**
+	 * Returns the field definitions for the entity.
+	 *
+	 * @return array<string, string>
+	 */
+	protected static function getFieldDefinition(): array {
+		return [
 			'job_id' => ResourceType::INTEGER,
 			'state' => ResourceType::STRING,
 			'space_id' => ResourceType::INTEGER,
 			'transaction_id' => ResourceType::INTEGER,
 			'order_id' => ResourceType::INTEGER,
 			'labels' => ResourceType::OBJECT,
-			'failure_reason' => ResourceType::OBJECT 
-		);
+			'failure_reason' => ResourceType::OBJECT
+		];
 	}
 
 	/**
 	 * Returns the translated failure reason.
 	 *
-	 * @param string $locale
-	 * @return string
+	 * @param string|null $language
+	 * @return string|null
 	 */
-	public function getFailureReason($language = null){
+	public function getFailureReason(?string $language = null): ?string {
 		$value = $this->getValue('failure_reason');
 		if (empty($value)) {
 			return null;
@@ -64,17 +74,26 @@ abstract class AbstractJob extends AbstractEntity {
 		return \WalleeHelper::instance($this->registry)->translate($value, $language);
 	}
 
-	public static function loadByOrder(\Registry $registry, $order_id){
+	/**
+	 * Loads all jobs for an order.
+	 *
+	 * @param \Registry $registry
+	 * @param int $order_id
+	 * @return array<static>
+	 */
+	public static function loadByOrder(\Registry $registry, int $order_id): array {
 		$db = $registry->get('db');
 		
-		$table = DB_PREFIX . static::getTableName();
-		$order_id = $db->escape($order_id);
+		$query = sprintf(
+			'SELECT * FROM %s%s WHERE order_id = %d;',
+			DB_PREFIX,
+			static::getTableName(),
+			$order_id
+		);
 		
-		$query = "SELECT * FROM $table WHERE order_id='$order_id';";
+		$db_result = static::query($query, $db);
 		
-		$db_result = self::query($query, $db);
-		
-		$result = array();
+		$result = [];
 		if ($db_result->num_rows) {
 			foreach ($db_result->rows as $row) {
 				$result[] = new static($registry, $row);
@@ -83,182 +102,88 @@ abstract class AbstractJob extends AbstractEntity {
 		return $result;
 	}
 
-	public static function loadByJob(\Registry $registry, $space_id, $job_id){
+	/**
+	 * Loads a job by its job data.
+	 *
+	 * @param \Registry $registry
+	 * @param int $space_id
+	 * @param int $job_id
+	 * @return static
+	 */
+	public static function loadByJob(\Registry $registry, int $space_id, int $job_id): static {
 		$db = $registry->get('db');
 		
-		$table = DB_PREFIX . static::getTableName();
-		$job_id = $db->escape($job_id);
-		$space_id = $db->escape($space_id);
+		$query = sprintf(
+			'SELECT * FROM %s%s WHERE job_id = %d AND space_id = %d;',
+			DB_PREFIX,
+			static::getTableName(),
+			$job_id,
+			$space_id
+		);
 		
-		$query = "SELECT * FROM $table WHERE job_id='$job_id' AND space_id='$space_id';";
-		
-		$db_result = self::query($query, $db);
-		
+		$db_result = static::query($query, $db);
 		if (isset($db_result->row) && !empty($db_result->row)) {
 			return new static($registry, $db_result->row);
 		}
+		
 		return new static($registry);
 	}
 
-	public static function countRunningForOrder(\Registry $registry, $order_id){
+	/**
+	 * Counts running jobs for an order.
+	 *
+	 * @param \Registry $registry
+	 * @param int $order_id
+	 * @return int
+	 */
+	public static function countRunningForOrder(\Registry $registry, int $order_id): int {
 		$db = $registry->get('db');
 		
-		$table = DB_PREFIX . static::getTableName();
-		$order_id = $db->escape($order_id);
-		$success = self::STATE_SUCCESS;
-		$failed_1 = self::STATE_FAILED_CHECK;
-		$failed_2 = self::STATE_FAILED_DONE;
-		
-		$query = "SELECT COUNT(id) FROM $table WHERE order_id='$order_id' AND state NOT IN ('$success', '$failed_1', '$failed_2');";
+		$query = sprintf(
+			'SELECT COUNT(id) AS count FROM %s%s WHERE order_id = %d AND state NOT IN ("%s", "%s", "%s");',
+			DB_PREFIX,
+			static::getTableName(),
+			$order_id,
+			self::STATE_SUCCESS,
+			self::STATE_FAILED_CHECK,
+			self::STATE_FAILED_DONE
+		);
 		
 		$db_result = $db->query($query);
-		
-		return $db_result->row['COUNT(id)'];
+		return (int)$db_result->row['count'];
 	}
 
 	/**
-	 * Load not sent jobs.
+	 * Loads not sent jobs.
 	 * If called on abstract object will load all completions, refunds and voids.
 	 *
 	 * @param \Registry $registry
 	 * @param string $period
-	 * @return array|\Wallee\Entity\AbstractJob[]
+	 * @return array<AbstractJob>
 	 */
-	public static function loadNotSent(\Registry $registry, $period = 'PT10M'){
-		if (get_called_class() == get_class()) {
-			return array_merge(CompletionJob::loadNotSent($registry, $period), VoidJob::loadNotSent($registry, $period),
-					RefundJob::loadNotSent($registry, $period));
+	public static function loadNotSent(\Registry $registry, string $period = 'PT10M'): array {
+		if (get_called_class() === self::class) {
+			return array_merge(
+				CompletionJob::loadNotSent($registry, $period),
+				VoidJob::loadNotSent($registry, $period),
+				RefundJob::loadNotSent($registry, $period)
+			);
 		}
-		else {
-			$time = new \DateTime();
-			$time->sub(new \DateInterval($period));
-			$table = DB_PREFIX . static::getTableName();
-			$created = self::STATE_CREATED;
-			$timestamp = $time->format('Y-m-dd h:i:s');
-			
-			$query = "SELECT * FROM $table WHERE STATE='$created' AND updated_at<'$timestamp';";
-			$db_result = self::query($query, $registry->get('db'));
-			$result = array();
-			if ($db_result->num_rows) {
-				foreach ($result->rows as $row) {
-					$result[] = new static($registry, $row);
-				}
-			}
-			return $result;
-		}
-	}
-
-	/**
-	 * Checks if there is a not sent job.
-	 * Always checks all job types, not specific.
-	 *
-	 * @param \Registry $registry
-	 * @param string $period
-	 * @return array|\Wallee\Entity\AbstractJob[]
-	 */
-	public static function hasNotSent(\Registry $registry, $period = 'PT10M'){
-		$time = new \DateTime();
-		$time->sub(new \DateInterval($period));
-		$timestamp = $time->format('Y-m-dd h:i:s');
-		$completions = DB_PREFIX . CompletionJob::getTableName();
-		$voids = DB_PREFIX . VoidJob::getTableName();
-		$refunds = DB_PREFIX . RefundJob::getTableName();
-		$created = self::STATE_CREATED;
 		
-		//@formatter:off
-		$query = "SELECT ( " .
-				"EXISTS ( SELECT id FROM $completions WHERE STATE='$created' AND updated_at<'$timestamp' LIMIT 1) " .
-				"OR EXISTS ( SELECT id FROM $voids WHERE STATE='$created' AND updated_at<'$timestamp' LIMIT 1) " .
-				"OR EXISTS ( SELECT id FROM $refunds WHERE STATE='$created' AND updated_at<'$timestamp' LIMIT 1) " .
-				") as pending_job";
-		//@formatter:on
+		$time = new DateTime();
+		$time->sub(new DateInterval($period));
 		
-		$db_result = self::query($query, $registry->get('db'));
+		$query = sprintf(
+			'SELECT * FROM %s%s WHERE state = "%s" AND updated_at < "%s";',
+			DB_PREFIX,
+			static::getTableName(),
+			self::STATE_CREATED,
+			$time->format('Y-m-d H:i:s')
+		);
 		
-		if ($result->row) {
-			return true;
-		}
-		return false;
-	}
-
-	public static function loadNotSentForOrder(\Registry $registry, $order_id){
-		$db = $registry->get('db');
+		$db_result = static::query($query, $registry->get('db'));
 		
-		$table = DB_PREFIX . static::getTableName();
-		$order_id = $db->escape($order_id);
-		$created = self::STATE_CREATED;
-		
-		$query = "SELECT * FROM $table WHERE order_id='$order_id' AND state='$created';";
-		
-		$result = self::query($query, $db);
-		
-		if (isset($result->row) && !empty($result->row)) {
-			return new static($registry, $result->row);
-		}
-		return new static($registry);
-	}
-
-	public static function loadRunningForOrder(\Registry $registry, $order_id){
-		$db = $registry->get('db');
-		
-		$table = DB_PREFIX . static::getTableName();
-		$order_id = $db->escape($order_id);
-		$created = self::STATE_CREATED;
-		$success = self::STATE_SUCCESS;
-		$failed_1 = self::STATE_FAILED_CHECK;
-		$failed_2 = self::STATE_FAILED_DONE;
-		
-		$query = "SELECT * FROM $table WHERE order_id='$order_id' AND state NOT IN ('$created', '$success', '$failed_1', '$failed_2');";
-		
-		$result = self::query($query, $db);
-		
-		if (isset($result->row) && !empty($result->row)) {
-			return new static($registry, $result->row);
-		}
-		return new static($registry);
-	}
-
-	public static function loadOldestCheckable(\Registry $registry){
-		$db = $registry->get('db');
-		
-		$table = DB_PREFIX . static::getTableName();
-		$state = self::STATE_FAILED_CHECK;
-		
-		$query = "SELECT * FROM $table WHERE state='$state' ORDER BY updated_at ASC LIMIT 1;";
-		
-		$result = self::query($query, $db);
-		
-		if (isset($db_result->row) && !empty($db_result->row)) {
-			return new static($registry, $db_result->row);
-		}
-		return new static($registry);
-	}
-
-	public static function countForOrder(\Registry $registry, $order_id){
-		$db = $registry->get('db');
-		
-		$table = DB_PREFIX . static::getTableName();
-		$order_id = $db->escape($order_id);
-		
-		$query = "SELECT COUNT(id) FROM $table WHERE order_id='$order_id';";
-		
-		$db_result = self::query($query, $db);
-		
-		return $db_result->row['COUNT(id)'];
-	}
-
-	public static function loadFailedCheckedForOrder(\Registry $registry, $order_id){
-		$db = $registry->get('db');
-		
-		$table = DB_PREFIX . static::getTableName();
-		$order_id = $db->escape($order_id);
-		$state = self::STATE_FAILED_CHECK;
-		
-		$query = "SELECT * FROM $table WHERE order_id='$order_id' AND state='$state';";
-		
-		$db_result = self::query($query, $db);
-		
-		$result = array();
+		$result = [];
 		if ($db_result->num_rows) {
 			foreach ($db_result->rows as $row) {
 				$result[] = new static($registry, $row);
@@ -268,28 +193,181 @@ abstract class AbstractJob extends AbstractEntity {
 	}
 
 	/**
-	 * Marks all failed_check jobs as failed_done.
+	 * Checks if there are any not sent jobs.
+	 * Always checks all job types, not specific.
 	 *
 	 * @param \Registry $registry
+	 * @param string $period
+	 * @return bool
 	 */
-	public static function markFailedAsDone(\Registry $registry, $order_id){
+	public static function hasNotSent(\Registry $registry, string $period = 'PT10M'): bool {
+		$time = new DateTime();
+		$time->sub(new DateInterval($period));
+		$timestamp = $time->format('Y-m-d H:i:s');
+		
+		$query = sprintf(
+			'SELECT (
+				EXISTS (SELECT id FROM %s%s WHERE state = "%s" AND updated_at < "%s" LIMIT 1)
+				OR EXISTS (SELECT id FROM %s%s WHERE state = "%s" AND updated_at < "%s" LIMIT 1)
+				OR EXISTS (SELECT id FROM %s%s WHERE state = "%s" AND updated_at < "%s" LIMIT 1)
+			) AS pending_job;',
+			DB_PREFIX, CompletionJob::getTableName(), self::STATE_CREATED, $timestamp,
+			DB_PREFIX, VoidJob::getTableName(), self::STATE_CREATED, $timestamp,
+			DB_PREFIX, RefundJob::getTableName(), self::STATE_CREATED, $timestamp
+		);
+		
+		$db_result = static::query($query, $registry->get('db'));
+		return isset($db_result->row['pending_job']) && (bool)$db_result->row['pending_job'];
+	}
+
+	/**
+	 * Loads not sent jobs for an order.
+	 *
+	 * @param \Registry $registry
+	 * @param int $order_id
+	 * @return static
+	 */
+	public static function loadNotSentForOrder(\Registry $registry, int $order_id): static {
 		$db = $registry->get('db');
 		
-		$table = DB_PREFIX . static::getTableName();
-		$order_id = $db->escape($order_id);
-		$state = self::STATE_FAILED_CHECK;
+		$query = sprintf(
+			'SELECT * FROM %s%s WHERE order_id = %d AND state = "%s";',
+			DB_PREFIX,
+			static::getTableName(),
+			$order_id,
+			self::STATE_CREATED
+		);
 		
-		$query = "SELECT * FROM $table WHERE order_id='$order_id' AND state='$state';";
+		$result = static::query($query, $db);
+		if (isset($result->row) && !empty($result->row)) {
+			return new static($registry, $result->row);
+		}
 		
-		$db_result = self::query($query, $db);
+		return new static($registry);
+	}
+
+	/**
+	 * Loads running jobs for an order.
+	 *
+	 * @param \Registry $registry
+	 * @param int $order_id
+	 * @return static
+	 */
+	public static function loadRunningForOrder(\Registry $registry, int $order_id): static {
+		$db = $registry->get('db');
 		
+		$query = sprintf(
+			'SELECT * FROM %s%s WHERE order_id = %d AND state NOT IN ("%s", "%s", "%s", "%s");',
+			DB_PREFIX,
+			static::getTableName(),
+			$order_id,
+			self::STATE_CREATED,
+			self::STATE_SUCCESS,
+			self::STATE_FAILED_CHECK,
+			self::STATE_FAILED_DONE
+		);
+		
+		$result = static::query($query, $db);
+		if (isset($result->row) && !empty($result->row)) {
+			return new static($registry, $result->row);
+		}
+		
+		return new static($registry);
+	}
+
+	/**
+	 * Loads the oldest checkable job.
+	 *
+	 * @param \Registry $registry
+	 * @return static
+	 */
+	public static function loadOldestCheckable(\Registry $registry): static {
+		$db = $registry->get('db');
+		
+		$query = sprintf(
+			'SELECT * FROM %s%s WHERE state = "%s" ORDER BY updated_at ASC LIMIT 1;',
+			DB_PREFIX,
+			static::getTableName(),
+			self::STATE_FAILED_CHECK
+		);
+		
+		$result = static::query($query, $db);
+		if (isset($result->row) && !empty($result->row)) {
+			return new static($registry, $result->row);
+		}
+		
+		return new static($registry);
+	}
+
+	/**
+	 * Counts all jobs for an order.
+	 *
+	 * @param \Registry $registry
+	 * @param int $order_id
+	 * @return int
+	 */
+	public static function countForOrder(\Registry $registry, int $order_id): int {
+		$db = $registry->get('db');
+		
+		$query = sprintf(
+			'SELECT COUNT(id) AS count FROM %s%s WHERE order_id = %d;',
+			DB_PREFIX,
+			static::getTableName(),
+			$order_id
+		);
+		
+		$db_result = static::query($query, $db);
+		return (int)$db_result->row['count'];
+	}
+
+	/**
+	 * Loads failed checked jobs for an order.
+	 *
+	 * @param \Registry $registry
+	 * @param int $order_id
+	 * @return array<static>
+	 */
+	public static function loadFailedCheckedForOrder(\Registry $registry, int $order_id): array {
+		$db = $registry->get('db');
+		
+		$query = sprintf(
+			'SELECT * FROM %s%s WHERE order_id = %d AND state = "%s";',
+			DB_PREFIX,
+			static::getTableName(),
+			$order_id,
+			self::STATE_FAILED_CHECK
+		);
+		
+		$db_result = static::query($query, $db);
+		
+		$result = [];
 		if ($db_result->num_rows) {
 			foreach ($db_result->rows as $row) {
-				$job = new static($registry, $row);
-				$job->setState(static::STATE_FAILED_DONE);
-				$job->save();
+				$result[] = new static($registry, $row);
 			}
-			\Wallee\Entity\Alert::loadFailedJobs($registry)->modifyCount(-($db_result->num_rows));
 		}
+		return $result;
+	}
+
+	/**
+	 * Marks failed jobs as done for an order.
+	 *
+	 * @param \Registry $registry
+	 * @param int $order_id
+	 * @return void
+	 */
+	public static function markFailedAsDone(\Registry $registry, int $order_id): void {
+		$db = $registry->get('db');
+		
+		$query = sprintf(
+			'UPDATE %s%s SET state = "%s" WHERE order_id = %d AND state = "%s";',
+			DB_PREFIX,
+			static::getTableName(),
+			self::STATE_FAILED_DONE,
+			$order_id,
+			self::STATE_FAILED_CHECK
+		);
+		
+		static::query($query, $db);
 	}
 }

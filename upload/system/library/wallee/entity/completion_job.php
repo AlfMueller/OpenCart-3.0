@@ -1,4 +1,5 @@
-<?php
+declare(strict_types=1);
+
 /**
  * Wallee OpenCart
  *
@@ -12,20 +13,32 @@
 namespace Wallee\Entity;
 
 /**
+ * This entity represents a completion job.
  *
  * @method void setAmount(float $amount)
  * @method float getAmount()
- *
  */
 class CompletionJob extends AbstractJob {
-
-	protected static function getFieldDefinition(){
-		return array_merge(parent::getFieldDefinition(), [
-			'amount' => ResourceType::DECIMAL 
-		]);
+	/**
+	 * Returns the field definitions for the entity.
+	 *
+	 * @return array<string, string>
+	 */
+	protected static function getFieldDefinition(): array {
+		return array_merge(
+			parent::getFieldDefinition(),
+			[
+				'amount' => ResourceType::DECIMAL
+			]
+		);
 	}
 
-	protected static function getTableName(){
+	/**
+	 * Returns the table name for the entity.
+	 *
+	 * @return string
+	 */
+	protected static function getTableName(): string {
 		return 'wallee_completion_job';
 	}
 }

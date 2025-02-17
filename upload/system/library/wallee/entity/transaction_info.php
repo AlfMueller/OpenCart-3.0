@@ -1,4 +1,6 @@
 <?php
+declare(strict_types=1);
+
 /**
  * Wallee OpenCart
  *
@@ -11,9 +13,10 @@
 
 namespace Wallee\Entity;
 
+use DateTime;
+
 /**
  * This entity holds data about a transaction on the gateway.
- * Note: these methods are case-sensitive
  *
  * @method int getId()
  * @method int getTransactionId()
@@ -32,23 +35,29 @@ namespace Wallee\Entity;
  * @method void setAuthorizationAmount(float $amount)
  * @method string getImage()
  * @method void setImage(string $image)
- * @method object getLabels()
- * @method void setLabels(map[string,string] $labels)
+ * @method array<string, string> getLabels()
+ * @method void setLabels(array<string, string> $labels)
  * @method int getPaymentMethodId()
  * @method void setPaymentMethodId(int $id)
  * @method int getConnectorId()
  * @method void setConnectorId(int $id)
  * @method int getOrderId()
  * @method void setOrderId(int $id)
- * @method void setFailureReason(map[string,string] $reasons)
+ * @method array<string, string>|null getFailureReason()
+ * @method void setFailureReason(array<string, string> $reasons)
+ * @method string|null getCouponCode()
  * @method void setCouponCode(string $coupon_code)
- * @method string getCouponCode()
- *
+ * @method DateTime|null getLockedAt()
+ * @method void setLockedAt(DateTime $locked_at)
  */
 class TransactionInfo extends AbstractEntity {
-
-	protected static function getFieldDefinition(){
-		return array(
+	/**
+	 * Returns the field definitions for the entity.
+	 *
+	 * @return array<string, string>
+	 */
+	protected static function getFieldDefinition(): array {
+		return [
 			'transaction_id' => ResourceType::INTEGER,
 			'state' => ResourceType::STRING,
 			'space_id' => ResourceType::INTEGER,
@@ -63,21 +72,26 @@ class TransactionInfo extends AbstractEntity {
 			'order_id' => ResourceType::INTEGER,
 			'failure_reason' => ResourceType::OBJECT,
 			'coupon_code' => ResourceType::STRING,
-			'locked_at' => ResourceType::DATETIME 
-		);
+			'locked_at' => ResourceType::DATETIME
+		];
 	}
 
-	protected static function getTableName(){
+	/**
+	 * Returns the table name for the entity.
+	 *
+	 * @return string
+	 */
+	protected static function getTableName(): string {
 		return 'wallee_transaction_info';
 	}
 
 	/**
 	 * Returns the translated failure reason.
 	 *
-	 * @param string $locale
-	 * @return string
+	 * @param string|null $language
+	 * @return string|null
 	 */
-	public function getFailureReason($language = null){
+	public function getFailureReason(?string $language = null): ?string {
 		$value = $this->getValue('failure_reason');
 		if (empty($value)) {
 			return null;
@@ -86,32 +100,55 @@ class TransactionInfo extends AbstractEntity {
 		return \WalleeHelper::instance($this->registry)->translate($value, $language);
 	}
 
-	public static function loadByOrderId(\Registry $registry, $order_id){
+	/**
+	 * Loads a transaction info by its order ID.
+	 *
+	 * @param \Registry $registry
+	 * @param int $order_id
+	 * @return static
+	 */
+	public static function loadByOrderId(\Registry $registry, int $order_id): static {
 		$db = $registry->get('db');
 		
-		$table = DB_PREFIX . self::getTableName();
-		$order_id = $db->escape($order_id);
-		$query = "SELECT * FROM $table WHERE order_id='$order_id';";
+		$query = sprintf(
+			'SELECT * FROM %s%s WHERE order_id = %d;',
+			DB_PREFIX,
+			static::getTableName(),
+			$order_id
+		);
 		
-		$db_result = self::query($query, $db);
+		$db_result = static::query($query, $db);
 		if (isset($db_result->row) && !empty($db_result->row)) {
-			return new self($registry, $db_result->row);
+			return new static($registry, $db_result->row);
 		}
-		return new self($registry);
+		
+		return new static($registry);
 	}
 
-	public static function loadByTransaction(\Registry $registry, $space_id, $transaction_id){
+	/**
+	 * Loads a transaction info by its transaction data.
+	 *
+	 * @param \Registry $registry
+	 * @param int $space_id
+	 * @param int $transaction_id
+	 * @return static
+	 */
+	public static function loadByTransaction(\Registry $registry, int $space_id, int $transaction_id): static {
 		$db = $registry->get('db');
 		
-		$table = DB_PREFIX . self::getTableName();
-		$space_id = $db->escape($space_id);
-		$transaction_id = $db->escape($transaction_id);
-		$query = "SELECT * FROM $table WHERE space_id='$space_id' AND transaction_id='$transaction_id';";
+		$query = sprintf(
+			'SELECT * FROM %s%s WHERE space_id = %d AND transaction_id = %d;',
+			DB_PREFIX,
+			static::getTableName(),
+			$space_id,
+			$transaction_id
+		);
 		
-		$db_result = self::query($query, $db);
+		$db_result = static::query($query, $db);
 		if (isset($db_result->row) && !empty($db_result->row)) {
-			return new self($registry, $db_result->row);
+			return new static($registry, $db_result->row);
 		}
-		return new self($registry);
+		
+		return new static($registry);
 	}
 }

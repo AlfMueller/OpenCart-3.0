@@ -1,4 +1,5 @@
-<?php
+declare(strict_types=1);
+
 /**
  * Wallee OpenCart
  *
@@ -11,87 +12,121 @@
 
 namespace Wallee\Entity;
 
+use Wallee\Sdk\Model\LineItemReduction;
+
 /**
- * This entity holds data about a transaction on the gateway.
+ * This entity holds data about a refund job.
  *
- * @method int getExternalId()
- * @method void setExternalId(int $id)
- * @method \Wallee\Sdk\Model\LineItemReduction[] getReductionItems()
- * @method void setReductionItems(\Wallee\Sdk\Model\LineItemReduction[] $reductions)
+ * @method string getExternalId()
+ * @method void setExternalId(string $id)
+ * @method LineItemReduction[] getReductionItems()
+ * @method void setReductionItems(LineItemReduction[] $reductions)
  * @method float getAmount()
  * @method void setAmount(float $amount)
- * @method void setFailureReason(map[string,string] $reasons)
+ * @method array<string, string> getFailureReason()
+ * @method void setFailureReason(array<string, string> $reasons)
  * @method bool getRestock()
  * @method void setRestock(bool $restock)
- *
  */
 class RefundJob extends AbstractJob {
-	const STATE_PENDING = 'PENDING';
-	const STATE_MANUAL_CHECK = 'MANUAL_CHECK';
+	public const STATE_PENDING = 'PENDING';
+	public const STATE_MANUAL_CHECK = 'MANUAL_CHECK';
 
-	protected static function getFieldDefinition(){
-		return array_merge(parent::getFieldDefinition(),
-				[
-					'external_id' => ResourceType::STRING,
-					'restock' => ResourceType::BOOLEAN,
-					'reduction_items' => ResourceType::OBJECT,
-					'amount' => ResourceType::DECIMAL 
-				]);
-	}
-
-	protected static function getTableName(){
-		return 'wallee_refund_job';
-	}
-	
-	public static function sumRefundedAmount(\Registry $registry, $order_id) {
-		$db = $registry->get('db');
-		
-		$table = DB_PREFIX . self::getTableName();
-		$order_id = $db->escape($order_id);
-		$state = self::STATE_SUCCESS;
-		$query = "SELECT SUM(amount) FROM $table WHERE order_id='$order_id' AND state='$state';";
-		
-		$db_result = self::query($query, $db);
-		if (isset($db_result->row['SUM(amount)'])) {
-			return $db_result->row['SUM(amount)'];
-		}
-		return 0;
+	/**
+	 * Returns the field definitions for the entity.
+	 *
+	 * @return array<string, string>
+	 */
+	protected static function getFieldDefinition(): array {
+		return array_merge(
+			parent::getFieldDefinition(),
+			[
+				'external_id' => ResourceType::STRING,
+				'restock' => ResourceType::BOOLEAN,
+				'reduction_items' => ResourceType::OBJECT,
+				'amount' => ResourceType::DECIMAL
+			]
+		);
 	}
 
 	/**
-	 * Counts transactions with PENDING & MANUAL_CHECK status
-	 * @param \Registry $registry
-	 * @param unknown $space_id
-	 * @return unknown|number
+	 * Returns the table name for the entity.
+	 *
+	 * @return string
 	 */
-	public static function countPending(\Registry $registry, $space_id){
-		$db = $registry->get('db');
-		
-		$table = DB_PREFIX . self::getTableName();
-		$space_id = $db->escape($space_id);
-		$state_pending = self::STATE_PENDING;
-		$state_manual = self::STATE_MANUAL_CHECK;
-		$query = "SELECT COUNT(id) FROM $table WHERE space_id='$space_id' AND state IN ('$state_pending', '$state_manual');";
-		
-		$db_result = self::query($query, $db);
-		if (isset($db_result->row['COUNT(id)'])) {
-			return $db_result->row['COUNT(id)'];
-		}
-		return 0;
+	protected static function getTableName(): string {
+		return 'wallee_refund_job';
 	}
 
-	public static function loadByExternalId(\Registry $registry, $space_id, $external_id){
+	/**
+	 * Calculates the sum of all refunded amounts for an order.
+	 *
+	 * @param \Registry $registry
+	 * @param int $order_id
+	 * @return float
+	 */
+	public static function sumRefundedAmount(\Registry $registry, int $order_id): float {
 		$db = $registry->get('db');
 		
-		$table = DB_PREFIX . self::getTableName();
-		$space_id = $db->escape($space_id);
-		$external_id = $db->escape($external_id);
-		$query = "SELECT * FROM $table WHERE space_id='$space_id' AND external_id='$external_id';";
+		$query = sprintf(
+			'SELECT SUM(amount) AS total FROM %s%s WHERE order_id = %d AND state = "%s";',
+			DB_PREFIX,
+			static::getTableName(),
+			$order_id,
+			self::STATE_SUCCESS
+		);
 		
-		$db_result = self::query($query, $db);
+		$db_result = static::query($query, $db);
+		return isset($db_result->row['total']) ? (float)$db_result->row['total'] : 0.0;
+	}
+
+	/**
+	 * Counts transactions with PENDING & MANUAL_CHECK status.
+	 *
+	 * @param \Registry $registry
+	 * @param int $space_id
+	 * @return int
+	 */
+	public static function countPending(\Registry $registry, int $space_id): int {
+		$db = $registry->get('db');
+		
+		$query = sprintf(
+			'SELECT COUNT(id) AS count FROM %s%s WHERE space_id = %d AND state IN ("%s", "%s");',
+			DB_PREFIX,
+			static::getTableName(),
+			$space_id,
+			self::STATE_PENDING,
+			self::STATE_MANUAL_CHECK
+		);
+		
+		$db_result = static::query($query, $db);
+		return isset($db_result->row['count']) ? (int)$db_result->row['count'] : 0;
+	}
+
+	/**
+	 * Loads a refund job by its external ID.
+	 *
+	 * @param \Registry $registry
+	 * @param int $space_id
+	 * @param string $external_id
+	 * @return static
+	 */
+	public static function loadByExternalId(\Registry $registry, int $space_id, string $external_id): static {
+		$db = $registry->get('db');
+		
+		$query = sprintf(
+			'SELECT * FROM %s%s WHERE space_id = %d AND external_id = "%s";',
+			DB_PREFIX,
+			static::getTableName(),
+			$space_id,
+			$db->escape($external_id)
+		);
+		
+		$db_result = static::query($query, $db);
 		if (isset($db_result->row) && !empty($db_result->row)) {
 			return new static($registry, $db_result->row);
 		}
+		
 		return new static($registry);
 	}
 }

@@ -1,4 +1,5 @@
-<?php
+declare(strict_types=1);
+
 /**
  * Wallee OpenCart
  *
@@ -12,11 +13,15 @@
 namespace Wallee\Entity;
 
 /**
- *
+ * This entity represents a void job.
  */
 class VoidJob extends AbstractJob {
-
-	protected static function getTableName(){
+	/**
+	 * Returns the table name for the entity.
+	 *
+	 * @return string
+	 */
+	protected static function getTableName(): string {
 		return 'wallee_void_job';
 	}
 }

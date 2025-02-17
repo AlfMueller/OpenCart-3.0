@@ -1,4 +1,6 @@
 <?php
+declare(strict_types=1);
+
 /**
  * Wallee OpenCart
  *
@@ -11,58 +13,125 @@
 
 namespace Wallee\Entity;
 
+use DateTime;
+
 /**
  *
  * @method int getId()
  * @method DateTime getCreatedAt()
  * @method DateTime getUpdatedAt()
  *
- * @method void setId($id)
- * @method void setCreatedAt($createdAt)
- * @method void setUpdatedAt($updatedAt)
+ * @method void setId(int $id)
+ * @method void setCreatedAt(DateTime $createdAt)
+ * @method void setUpdatedAt(DateTime $updatedAt)
  *
  * Abstract implementation of a entity
  */
 abstract class AbstractEntity {
-	protected $data = array();
-	protected $registry;
+	/**
+	 * Entity data storage.
+	 *
+	 * @var array<string, mixed>
+	 */
+	protected array $data = [];
 
-	protected static function getBaseFields(){
-		return array(
+	/**
+	 * OpenCart registry.
+	 *
+	 * @var \Registry
+	 */
+	protected \Registry $registry;
+
+	/**
+	 * Returns the base fields for all entities.
+	 *
+	 * @return array<string, string>
+	 */
+	protected static function getBaseFields(): array {
+		return [
 			'id' => ResourceType::INTEGER,
 			'created_at' => ResourceType::DATETIME,
-			'updated_at' => ResourceType::DATETIME 
-		);
+			'updated_at' => ResourceType::DATETIME
+		];
 	}
 
-	protected static function getFieldDefinition(){
+	/**
+	 * Returns the field definitions for the entity.
+	 *
+	 * @return array<string, string>
+	 * @throws \Exception When not implemented
+	 */
+	protected static function getFieldDefinition(): array {
 		throw new \Exception("Mock abstract, must be overwritten.");
 	}
 
-	protected static function getTableName(){
+	/**
+	 * Returns the table name for the entity.
+	 *
+	 * @return string
+	 * @throws \Exception When not implemented
+	 */
+	protected static function getTableName(): string {
 		throw new \Exception("Mock abstract, must be overwritten.");
 	}
 
-	protected function getValue($variable_name){
-		return isset($this->data[$variable_name]) ? $this->data[$variable_name] : null;
+	/**
+	 * Gets a value from the entity data.
+	 *
+	 * @param string $variable_name
+	 * @return mixed
+	 */
+	protected function getValue(string $variable_name): mixed {
+		return $this->data[$variable_name] ?? null;
 	}
 
-	protected function setValue($variable_name, $value){
+	/**
+	 * Sets a value in the entity data.
+	 *
+	 * @param string $variable_name
+	 * @param mixed $value
+	 */
+	protected function setValue(string $variable_name, mixed $value): void {
 		$this->data[$variable_name] = $value;
 	}
 
-	protected function hasValue($variable_name){
+	/**
+	 * Checks if a value exists in the entity data.
+	 *
+	 * @param string $variable_name
+	 * @return bool
+	 */
+	protected function hasValue(string $variable_name): bool {
 		return array_key_exists($variable_name, $this->data);
 	}
 
-	protected static function query($query, $db){
+	/**
+	 * Executes a database query with error handling.
+	 *
+	 * @param string $query
+	 * @param object $db
+	 * @return object
+	 */
+	protected static function query(string $query, object $db): object {
 		set_error_handler('WalleeHelper::exceptionErrorHandler');
-		$result = $db->query($query);
-		restore_error_handler();
-		return $result;
+		try {
+			$result = $db->query($query);
+			restore_error_handler();
+			return $result;
+		} catch (\Exception $e) {
+			restore_error_handler();
+			throw $e;
+		}
 	}
 
-	public function __call($name, $arguments){
+	/**
+	 * Magic method to handle getters and setters.
+	 *
+	 * @param string $name
+	 * @param array<mixed> $arguments
+	 * @return mixed
+	 */
+	public function __call(string $name, array $arguments): mixed {
 		$variable_name = substr($name, 3);
 		
 		$cleaned = '';
@@ -85,133 +154,120 @@ abstract class AbstractEntity {
 		elseif (0 === strpos($name, 'has')) {
 			return $this->hasValue($variable_name);
 		}
-	}
-
-	public function __construct(){
-		$args = func_get_args();
-		if (!isset($args[0]) || !($args[0] instanceof \Registry)) {
-			throw new \Exception("Registry must be supplied to entity objects.");
-		}
-		$this->registry = $args[0];
 		
-		if (!isset($args[1]) || empty($args[1])) {
-			return;
-		}
-		$this->fillValuesFromDb($args[1]);
+		throw new \BadMethodCallException(sprintf('Method %s does not exist', $name));
 	}
 
-	protected function fillValuesFromDb(array $db_values){
-		$fields = array_merge($this->getBaseFields(), $this->getFieldDefinition());
+	/**
+	 * Constructor.
+	 *
+	 * @param \Registry $registry
+	 * @param array<string, mixed> $data
+	 * @throws \Exception When registry is not provided
+	 */
+	public function __construct(\Registry $registry, array $data = []) {
+		$this->registry = $registry;
+		
+		if (!empty($data)) {
+			$this->fillValuesFromDb($data);
+		}
+	}
+
+	/**
+	 * Fills entity values from database data.
+	 *
+	 * @param array<string, mixed> $db_values
+	 * @throws \Exception When an unsupported variable type is encountered
+	 */
+	protected function fillValuesFromDb(array $db_values): void {
+		$fields = array_merge(static::getBaseFields(), static::getFieldDefinition());
 		foreach ($fields as $key => $type) {
 			if (isset($db_values[$key])) {
 				$value = $db_values[$key];
-				switch ($type) {
-					case ResourceType::STRING:
-						//Do nothing
-						break;
-					case ResourceType::BOOLEAN:
-						$value = $value === 'Y';
-						break;
-					case ResourceType::INTEGER:
-						$value = intval($value);
-						break;
-					
-					case ResourceType::DECIMAL:
-						$value = (float) $value;
-						break;
-					
-					case ResourceType::DATETIME:
-						$value = new \DateTime($value);
-						break;
-					
-					case ResourceType::OBJECT:
-						$value = unserialize($value);
-						break;
-					default:
-						throw new \Exception('Unsupported variable type');
-				}
+				$value = match ($type) {
+					ResourceType::STRING => $value,
+					ResourceType::BOOLEAN => $value === 'Y',
+					ResourceType::INTEGER => (int)$value,
+					ResourceType::DECIMAL => (float)$value,
+					ResourceType::DATETIME => new DateTime($value),
+					ResourceType::OBJECT => unserialize($value),
+					default => throw new \Exception('Unsupported variable type: ' . $type),
+				};
 				$this->setValue($key, $value);
 			}
 		}
 	}
 
-	public function save(){
+	/**
+	 * Saves the entity to the database.
+	 *
+	 * @throws \Exception When an unsupported variable type is encountered
+	 */
+	public function save(): void {
 		$db = $this->registry->get('db');
-		$data_array = array();
+		$data_array = [];
 		
-		foreach ($this->getFieldDefinition() as $key => $type) {
+		foreach (static::getFieldDefinition() as $key => $type) {
 			$value = $this->getValue($key);
-			switch ($type) {
-				case ResourceType::STRING:
-					break;
-				
-				case ResourceType::BOOLEAN:
-					$value = $value ? 'Y' : 'N';
-					break;
-				
-				case ResourceType::INTEGER:
-					break;
-				
-				case ResourceType::DATETIME:
-					if ($value instanceof \DateTime) {
-						$value = $value->format('Y-m-d H:i:s');
-					}
-					break;
-				
-				case ResourceType::OBJECT:
-					$value = serialize($value);
-					break;
-				
-				case ResourceType::DECIMAL:
-					$value = number_format($value, 8, '.', '');
-					break;
-				
-				default:
-					throw new \Exception('Unsupported variable type');
+			if ($value === null) {
+				continue;
 			}
+
+			$value = match ($type) {
+				ResourceType::STRING => $value,
+				ResourceType::BOOLEAN => $value ? 'Y' : 'N',
+				ResourceType::INTEGER => $value,
+				ResourceType::DATETIME => $value instanceof DateTime ? $value->format('Y-m-d H:i:s') : $value,
+				ResourceType::OBJECT => serialize($value),
+				ResourceType::DECIMAL => number_format((float)$value, 8, '.', ''),
+				default => throw new \Exception('Unsupported variable type: ' . $type),
+			};
 			$data_array[$key] = $value;
 		}
-		$data_array['updated_at'] = date("Y-m-d H:i:s");
-		if ($this->getId() == null) {
-			$data_array['created_at'] = $data_array['updated_at'];
-		}
-		
-		$valuesQuery = '';
-		
-		foreach ($data_array as $key => $value) {
-			if($value === null) {
-				$value = 'NULL';
-			}
-			else {
-				$value = '"'.$db->escape($value) .'"';
-			}
-			if($value !== null) {
-				$valuesQuery .= "`$key`=$value,";
-			}
-		}
-		
-		$valuesQuery = rtrim($valuesQuery, ',');
-		
-		$table = DB_PREFIX . $this->getTableName();
+
+		$current_time = date('Y-m-d H:i:s');
+		$data_array['updated_at'] = $current_time;
 		
 		if ($this->getId() === null) {
-			$query = "INSERT INTO $table SET $valuesQuery;";
-			$res = self::query($query, $db);
-			$this->setId($db->getLastId());
+			$data_array['created_at'] = $current_time;
 		}
-		else {
-			$query = "UPDATE $table SET $valuesQuery WHERE id = {$this->getId()};";
-			$res = self::query($query, $db);
+		
+		$values_query = [];
+		foreach ($data_array as $key => $value) {
+			$escaped_value = $value === null ? 'NULL' : '"' . $db->escape($value) . '"';
+			$values_query[] = sprintf('`%s`=%s', $key, $escaped_value);
+		}
+		
+		$table = DB_PREFIX . static::getTableName();
+		$values_string = implode(',', $values_query);
+		
+		if ($this->getId() === null) {
+			$query = sprintf('INSERT INTO %s SET %s;', $table, $values_string);
+			static::query($query, $db);
+			$this->setId((int)$db->getLastId());
+		} else {
+			$query = sprintf('UPDATE %s SET %s WHERE id = %d;', $table, $values_string, $this->getId());
+			static::query($query, $db);
 		}
 	}
 
 	/**
+	 * Loads an entity by its ID.
 	 *
+	 * @param \Registry $registry
 	 * @param int $id
 	 * @return static
 	 */
-	public static function loadById(\Registry $registry, $id){
-		$result = self::query("SELECT * FROM " . DB_PREFIX . static::getTableName() . " WHERE id = '$id';", $registry->get('db'));
+	public static function loadById(\Registry $registry, int $id): static {
+		$result = static::query(
+			sprintf(
+				'SELECT * FROM %s%s WHERE id = %d;',
+				DB_PREFIX,
+				static::getTableName(),
+				$id
+			),
+			$registry->get('db')
+		);
 		
 		if (isset($result->row) && !empty($result->row)) {
 			return new static($registry, $result->row);
@@ -221,15 +277,22 @@ abstract class AbstractEntity {
 	}
 
 	/**
-	 * Load all entities.
+	 * Loads all entities.
 	 *
 	 * @param \Registry $registry
-	 * @return \Wallee\Entity\AbstractEntity[]
+	 * @return array<static>
 	 */
-	public static function loadAll(\Registry $registry){
-		$db_result = self::query("SELECT * FROM " . DB_PREFIX . static::getTableName() . ";", $registry->get('db'));
+	public static function loadAll(\Registry $registry): array {
+		$db_result = static::query(
+			sprintf(
+				'SELECT * FROM %s%s;',
+				DB_PREFIX,
+				static::getTableName()
+			),
+			$registry->get('db')
+		);
 		
-		$result = array();
+		$result = [];
 		foreach ($db_result->rows as $row) {
 			$result[] = new static($registry, $row);
 		}
@@ -237,77 +300,93 @@ abstract class AbstractEntity {
 	}
 
 	/**
-	 * Return true or false if the field is treated as a date.
+	 * Gets the default filter value.
 	 *
-	 * @param string $field
+	 * @param array<string, mixed> $filters
+	 * @param string $filterName
+	 * @param mixed $default
+	 * @return mixed
 	 */
-	protected static function isDateField($field){
-		return in_array($field, array(
-			'created_at',
-			'updated_at' 
-		));
-	}
-
-	private static function getDefaultFilter(array &$filters, $filterName, $default){
-		if (isset($filters[$filterName])) {
-			$value = $filters[$filterName];
-			unset($filters[$filterName]);
-			return $value;
+	private static function getDefaultFilter(array &$filters, string $filterName, mixed $default): mixed {
+		if (!isset($filters[$filterName])) {
+			$filters[$filterName] = $default;
 		}
-		return $default;
+		return $filters[$filterName];
 	}
 
-	private static function buildWhereClause($db, array $filters){
-		$query = '';
-		foreach ($filters as $field => $value) {
-			if ($value) {
-				$field = $db->escape($field);
-				$value = "'" . $db->escape($value) . "'";
-				if (self::isDateField($field)) {
-					$query .= "(DATE($field)=$value OR YEAR($field)=$value OR TIME($field)=$value OR $field=$value) AND";
+	/**
+	 * Builds the WHERE clause for a query.
+	 *
+	 * @param object $db
+	 * @param array<string, mixed> $filters
+	 * @return string
+	 */
+	private static function buildWhereClause(object $db, array $filters): string {
+		$where = [];
+		
+		foreach ($filters as $key => $value) {
+			if ($value === null) {
+				continue;
+			}
+			
+			if (static::isDateField($key)) {
+				if (isset($value['from'])) {
+					$where[] = sprintf(
+						'`%s` >= "%s"',
+						$db->escape($key),
+						$db->escape($value['from']->format('Y-m-d H:i:s'))
+					);
 				}
-				else {
-					$query .= "$field=$value AND ";
+				if (isset($value['to'])) {
+					$where[] = sprintf(
+						'`%s` <= "%s"',
+						$db->escape($key),
+						$db->escape($value['to']->format('Y-m-d H:i:s'))
+					);
 				}
+			} else {
+				$where[] = sprintf(
+					'`%s` = "%s"',
+					$db->escape($key),
+					$db->escape($value)
+				);
 			}
 		}
-		if ($query) {
-			$query = "WHERE " . rtrim($query, " AND");
-		}
-		return $query;
+		
+		return empty($where) ? '' : ' WHERE ' . implode(' AND ', $where);
 	}
 
 	/**
-	 * Load entities which match the filters.
-	 * Filters are applied as sql =.
-	 * Special Filters:
-	 * order: ASC or DESC.
-	 * sort: ORDERBY.
-	 * isDateField($field)=true: Compares dates
-	 * start: Limit start
-	 * limit: Limit end
+	 * Loads entities by filters.
 	 *
 	 * @param \Registry $registry
-	 * @param array $filters (e.g. array(id=10) or (authorization_amount=10, STATE='FULFIL'))
-	 * @return \Wallee\Entity\AbstractEntity[]
+	 * @param array<string, mixed> $filters
+	 * @return array<static>
 	 */
-	public static function loadByFilters(\Registry $registry, array $filters){
+	public static function loadByFilters(\Registry $registry, array $filters): array {
 		$db = $registry->get('db');
-		$table = DB_PREFIX . static::getTableName();
-		$orderBy = static::getDefaultFilter($filters, 'sort', 'id');
-		$ordering = static::getDefaultFilter($filters, 'order', 'ASC');
-		$page = 1;
-		if (isset($filters['page'])) {
-			$page = $filters['page'];
-			unset($filters['page']);
-		}
-		$start = \WalleeHelper::instance($registry)->getLimitStart($page);
-		$end = \WalleeHelper::instance($registry)->getLimitEnd($page);
 		
-		$query = "SELECT * FROM $table " . static::buildWhereClause($db, $filters) . " ORDER BY $orderBy $ordering LIMIT $start, $end;";
+		$order_by = static::getDefaultFilter($filters, 'order_by', 'id');
+		$order_way = static::getDefaultFilter($filters, 'order_way', 'DESC');
+		$page = (int)static::getDefaultFilter($filters, 'page', 1);
+		$limit = (int)static::getDefaultFilter($filters, 'limit', 50);
 		
-		$db_result = self::query($query, $db);
-		$result = array();
+		unset($filters['order_by'], $filters['order_way'], $filters['page'], $filters['limit']);
+		
+		$query = sprintf(
+			'SELECT * FROM %s%s%s ORDER BY `%s` %s LIMIT %d, %d;',
+			DB_PREFIX,
+			static::getTableName(),
+			static::buildWhereClause($db, $filters),
+			$db->escape($order_by),
+			$order_way,
+			($page - 1) * $limit,
+			$limit
+		);
+		
+		$db_result = static::query($query, $db);
+		
+		$result = [];
 		foreach ($db_result->rows as $row) {
 			$result[] = new static($registry, $row);
 		}
@@ -315,20 +394,55 @@ abstract class AbstractEntity {
 	}
 
 	/**
-	 * Returns the count of all entites.
+	 * Counts the total number of rows.
 	 *
 	 * @param \Registry $registry
 	 * @return int
 	 */
-	public static function countRows(\Registry $registry){
-		$db = $registry->get('db');
-		$table = DB_PREFIX . static::getTableName();
-		$query = "SELECT COUNT(id) as count FROM $table;";
-		$dbResult = self::query($query, $db);
-		return $dbResult->row['count'];
+	public static function countRows(\Registry $registry): int {
+		$result = static::query(
+			sprintf(
+				'SELECT COUNT(*) AS count FROM %s%s;',
+				DB_PREFIX,
+				static::getTableName()
+			),
+			$registry->get('db')
+		);
+		return (int)$result->row['count'];
 	}
 
-	public function delete(\Registry $registry){
-		self::query("DELETE FROM " . DB_PREFIX . static::getTableName() . " WHERE id = {$this->getId()};", $registry->get('db'));
+	/**
+	 * Deletes the entity.
+	 *
+	 * @param \Registry $registry
+	 * @return void
+	 */
+	public function delete(\Registry $registry): void {
+		if ($this->getId() === null) {
+			return;
+		}
+
+		static::query(
+			sprintf(
+				'DELETE FROM %s%s WHERE id = %d;',
+				DB_PREFIX,
+				static::getTableName(),
+				$this->getId()
+			),
+			$registry->get('db')
+		);
+	}
+
+	/**
+	 * Checks if a field is a date field.
+	 *
+	 * @param string $field
+	 * @return bool
+	 */
+	protected static function isDateField(string $field): bool {
+		return in_array($field, [
+			'created_at',
+			'updated_at'
+		], true);
 	}
 }

@@ -1,4 +1,5 @@
-<?php
+declare(strict_types=1);
+
 /**
  * Wallee OpenCart
  *
@@ -12,53 +13,66 @@
 namespace Wallee\Entity;
 
 /**
- * This entity holds data about a transaction on the gateway.
+ * This entity holds shipping information for a transaction.
  *
  * @method int getId()
  * @method void setTransactionId(int $id)
  * @method int getTransactionId()
- * @method void SetSpaceId(int $id)
+ * @method void setSpaceId(int $id)
  * @method int getSpaceId()
  * @method void setTaxClassId(int $id)
  * @method int getTaxClassId()
  * @method void setCost(float $cost)
  * @method float getCost()
- *
  */
 class ShippingInfo extends AbstractEntity {
-	
-	protected static function getFieldDefinition(){
-		return array(
+	/**
+	 * Returns the field definitions for the entity.
+	 *
+	 * @return array<string, string>
+	 */
+	protected static function getFieldDefinition(): array {
+		return [
 			'transaction_id' => ResourceType::INTEGER,
 			'space_id' => ResourceType::INTEGER,
 			'cost' => ResourceType::DECIMAL,
-			'tax_class_id' => ResourceType::INTEGER 
-		);
+			'tax_class_id' => ResourceType::INTEGER
+		];
 	}
 
-	protected static function getTableName(){
+	/**
+	 * Returns the table name for the entity.
+	 *
+	 * @return string
+	 */
+	protected static function getTableName(): string {
 		return 'wallee_shipping_info';
 	}
 
 	/**
-	 * 
+	 * Loads shipping information by transaction data.
+	 *
 	 * @param \Registry $registry
 	 * @param int $space_id
 	 * @param int $transaction_id
-	 * @return \Wallee\Entity\ShippingInfo
+	 * @return static
 	 */
-	public static function loadByTransaction(\Registry $registry, $space_id, $transaction_id){
+	public static function loadByTransaction(\Registry $registry, int $space_id, int $transaction_id): static {
 		$db = $registry->get('db');
 		
-		$table = DB_PREFIX . self::getTableName();
-		$space_id = $db->escape($space_id);
-		$transaction_id = $db->escape($transaction_id);
-		$query = "SELECT * FROM $table WHERE space_id='$space_id' AND transaction_id='$transaction_id';";
+		$query = sprintf(
+			'SELECT * FROM %s%s WHERE space_id = %d AND transaction_id = %d;',
+			DB_PREFIX,
+			static::getTableName(),
+			$space_id,
+			$transaction_id
+		);
 		
-		$db_result = self::query($query, $db);
+		$db_result = static::query($query, $db);
 		if (isset($db_result->row) && !empty($db_result->row)) {
-			return new self($registry, $db_result->row);
+			return new static($registry, $db_result->row);
 		}
-		return new self($registry);
+		
+		return new static($registry);
 	}
 }

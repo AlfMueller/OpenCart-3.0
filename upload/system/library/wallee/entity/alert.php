@@ -1,4 +1,5 @@
-<?php
+declare(strict_types=1);
+
 /**
  * Wallee OpenCart
  *
@@ -12,38 +13,52 @@
 namespace Wallee\Entity;
 
 /**
+ * This entity represents an alert in the system.
  *
  * @method string getRoute()
+ * @method void setRoute(string $route)
  * @method string getKey()
- * @method string getType()
- * @method integer getCount()
- * @method void setCount(integer $count)
- *
+ * @method void setKey(string $key)
+ * @method string getLevel()
+ * @method void setLevel(string $level)
+ * @method int getCount()
+ * @method void setCount(int $count)
  */
 class Alert extends AbstractEntity {
-	const KEY_MANUAL_TASK = 'manual_task';
-	const KEY_FAILED_JOB = 'failed_jobs';
+	public const KEY_MANUAL_TASK = 'manual_task';
+	public const KEY_FAILED_JOB = 'failed_jobs';
 
-	protected static function getTableName(){
+	/**
+	 * Returns the table name for the entity.
+	 *
+	 * @return string
+	 */
+	protected static function getTableName(): string {
 		return 'wallee_alert';
 	}
 
-	protected static function getFieldDefinition(){
-		return array(
+	/**
+	 * Returns the field definitions for the entity.
+	 *
+	 * @return array<string, string>
+	 */
+	protected static function getFieldDefinition(): array {
+		return [
 			'key' => ResourceType::STRING,
 			'route' => ResourceType::STRING,
 			'level' => ResourceType::STRING,
-			'count' => ResourceType::INTEGER 
-		);
+			'count' => ResourceType::INTEGER
+		];
 	}
 
 	/**
-	 * Modifies the entities count by the given parameter.
+	 * Modifies the entity's count by the given parameter.
 	 * The parameter may be negative or positive.
 	 *
-	 * @param int $count
+	 * @param int $count The count to add (or subtract if negative)
+	 * @return void
 	 */
-	public function modifyCount($count){
+	public function modifyCount(int $count): void {
 		$new_count = $this->getCount() + $count;
 		if ($new_count < 0) {
 			$new_count = 0;
@@ -52,28 +67,48 @@ class Alert extends AbstractEntity {
 		$this->save();
 	}
 
-	public static function loadManualTask(\Registry $registry){
-		return self::loadByKey($registry, self::KEY_MANUAL_TASK);
+	/**
+	 * Loads the manual task alert.
+	 *
+	 * @param \Registry $registry
+	 * @return static
+	 */
+	public static function loadManualTask(\Registry $registry): static {
+		return static::loadByKey($registry, self::KEY_MANUAL_TASK);
 	}
 
-
-	public static function loadFailedJobs(\Registry $registry){
-		return self::loadByKey($registry, self::KEY_FAILED_JOB);
+	/**
+	 * Loads the failed jobs alert.
+	 *
+	 * @param \Registry $registry
+	 * @return static
+	 */
+	public static function loadFailedJobs(\Registry $registry): static {
+		return static::loadByKey($registry, self::KEY_FAILED_JOB);
 	}
 
-	protected static function loadByKey(\Registry $registry, $key){
+	/**
+	 * Loads an alert by its key.
+	 *
+	 * @param \Registry $registry
+	 * @param string $key
+	 * @return static
+	 */
+	protected static function loadByKey(\Registry $registry, string $key): static {
 		$db = $registry->get('db');
 		
-		$table = DB_PREFIX . self::getTableName();
-		$key = $db->escape($key);
+		$query = sprintf(
+			'SELECT * FROM %s%s WHERE `key` = "%s";',
+			DB_PREFIX,
+			static::getTableName(),
+			$db->escape($key)
+		);
 		
-		$query = "SELECT * FROM $table WHERE `key`='$key';";
-		
-		$db_result = self::query($query, $db);
-		
+		$db_result = static::query($query, $db);
 		if (isset($db_result->row) && !empty($db_result->row)) {
-			return new self($registry, $db_result->row);
+			return new static($registry, $db_result->row);
 		}
-		return new self($registry);
+		
+		return new static($registry);
 	}
 }

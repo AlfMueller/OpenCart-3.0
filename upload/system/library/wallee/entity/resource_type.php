@@ -1,4 +1,5 @@
-<?php
+declare(strict_types=1);
+
 /**
  * Wallee OpenCart
  *
@@ -11,13 +12,13 @@
 namespace Wallee\Entity;
 
 /**
- * Defines the different resource types
+ * Defines the different resource types used in entities.
  */
 interface ResourceType {
-	const STRING = 'string';
-	const DATETIME = 'datetime';
-	const INTEGER = 'integer';
-	const BOOLEAN = 'boolean';
-	const OBJECT = 'object';
-	const DECIMAL = 'decimal';
+	public const STRING = 'string';
+	public const DATETIME = 'datetime';
+	public const INTEGER = 'integer';
+	public const BOOLEAN = 'boolean';
+	public const OBJECT = 'object';
+	public const DECIMAL = 'decimal';
 }
