@@ -1,4 +1,6 @@
 <?php
+declare(strict_types=1);
+
 /**
  * Wallee OpenCart
  *
@@ -16,10 +18,20 @@ namespace Wallee\Service;
  */
 class VoidJob extends AbstractJob {
 
-	public function create(\Wallee\Entity\TransactionInfo $transaction_info){
+	/**
+	 * Creates a new void job for the given transaction.
+	 *
+	 * @param \Wallee\Entity\TransactionInfo $transaction_info
+	 * @return \Wallee\Entity\VoidJob
+	 * @throws \RuntimeException
+	 */
+	public function create(\Wallee\Entity\TransactionInfo $transaction_info): \Wallee\Entity\VoidJob {
 		try {
 			\WalleeHelper::instance($this->registry)->dbTransactionStart();
-			\WalleeHelper::instance($this->registry)->dbTransactionLock($transaction_info->getSpaceId(), $transaction_info->getTransactionId());
+			\WalleeHelper::instance($this->registry)->dbTransactionLock(
+				$transaction_info->getSpaceId(),
+				$transaction_info->getTransactionId()
+			);
 			
 			$job = \Wallee\Entity\VoidJob::loadNotSentForOrder($this->registry, $transaction_info->getOrderId());
 			if (!$job->getId()) {
@@ -29,14 +41,24 @@ class VoidJob extends AbstractJob {
 			
 			\WalleeHelper::instance($this->registry)->dbTransactionCommit();
 			return $job;
-		}
-		catch (\Exception $e) {
+		} catch (\Exception $e) {
 			\WalleeHelper::instance($this->registry)->dbTransactionRollback();
-			throw $e;
+			throw new \RuntimeException(
+				sprintf('Fehler beim Erstellen des Void-Jobs: %s', $e->getMessage()),
+				$e->getCode(),
+				$e
+			);
 		}
 	}
 
-	public function send(\Wallee\Entity\VoidJob $job){
+	/**
+	 * Sends the void job to the gateway.
+	 *
+	 * @param \Wallee\Entity\VoidJob $job
+	 * @return \Wallee\Entity\VoidJob
+	 * @throws \RuntimeException
+	 */
+	public function send(\Wallee\Entity\VoidJob $job): \Wallee\Entity\VoidJob {
 		try {
 			\WalleeHelper::instance($this->registry)->dbTransactionStart();
 			\WalleeHelper::instance($this->registry)->dbTransactionLock($job->getSpaceId(), $job->getTransactionId());
@@ -44,11 +66,11 @@ class VoidJob extends AbstractJob {
 			$service = new \Wallee\Sdk\Service\TransactionVoidService(\WalleeHelper::instance($this->registry)->getApiClient());
 			$operation = $service->voidOnline($job->getSpaceId(), $job->getTransactionId());
 			
-			if ($operation->getFailureReason() != null) {
+			if ($operation->getFailureReason() !== null) {
 				$job->setFailureReason($operation->getFailureReason()->getDescription());
 			}
 			
-			$labels = array();
+			$labels = [];
 			foreach ($operation->getLabels() as $label) {
 				$labels[$label->getDescriptor()->getId()] = $label->getContentAsString();
 			}
@@ -60,13 +82,15 @@ class VoidJob extends AbstractJob {
 			
 			\WalleeHelper::instance($this->registry)->dbTransactionCommit();
 			return $job;
-		}
-		catch (\Wallee\Sdk\ApiException $api_exception) {
-		}
-		catch (\Exception $e) {
+		} catch (\Wallee\Sdk\ApiException $api_exception) {
+			return $this->handleApiException($job, $api_exception);
+		} catch (\Exception $e) {
 			\WalleeHelper::instance($this->registry)->dbTransactionRollback();
-			throw $e;
+			throw new \RuntimeException(
+				sprintf('Fehler beim Senden des Void-Jobs: %s', $e->getMessage()),
+				$e->getCode(),
+				$e
+			);
 		}
-		return $this->handleApiException($hob, $api_exception);
 	}
 }

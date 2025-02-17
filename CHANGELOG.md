@@ -57,6 +57,20 @@ und dieses Projekt folgt [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   - Umfassende PHPDoc-Dokumentation
   - Implementierung von strikter Fehlerbehandlung
 
+- Optimierung der `VoidJob` Service-Klasse
+  - Hinzufügung von `declare(strict_types=1);`
+  - Verbesserung der `create` Methode:
+    - Hinzufügung von PHPDoc mit Parametern und Rückgabetyp
+    - Implementierung von strikter Typisierung
+    - Verbesserte Fehlerbehandlung mit spezifischen Meldungen
+  - Optimierung der `send` Methode:
+    - Hinzufügung von PHPDoc mit Parametern und Rückgabetyp
+    - Typsichere Implementierung mit Rückgabetypen
+    - Korrektur der API-Exception-Behandlung
+    - Verbesserte Fehlerbehandlung
+  - Einheitliche Verwendung von modernen PHP-Konstrukten
+  - Verbesserte Code-Formatierung und Lesbarkeit
+
 ### Sicherheit
 - Verbesserte Fehlerbehandlung in allen Service-Klassen
 - Sicherere SQL-Query-Generierung
