@@ -1,4 +1,4 @@
-# OpenCart 3.0.4.0 - Wallee Zahlungsmodul (PHP 8.2 Kompatibel)
+# OpenCart 3.0.4.0 - Wallee Zahlungsmodul (PHP 8.2 Kompatibel) IN ENTWICKLUNG
 
 Dieses Repository enthält eine optimierte Version des Wallee Zahlungsmoduls für OpenCart, das es dem Shop ermöglicht, Zahlungen mit [Wallee](https://www.wallee.com) zu verarbeiten. Da Wallee keine aktive Unterstützung mehr für das Modul bietet, wurde diese Version speziell für die Kompatibilität mit PHP 8.2 angepasst und optimiert.
 
