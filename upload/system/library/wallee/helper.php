@@ -317,8 +317,8 @@ class WalleeHelper {
 	 * @param string $key
 	 * @return string
 	 */
-	public function getTranslation($key){
-		if ($this->registry->get('language')->get($key) == $key) {
+	public function getTranslation(string $key): string {
+		if ($this->registry->get('language')->get($key) === $key) {
 			$this->registry->get('language')->load('extension/payment/wallee');
 		}
 		return $this->registry->get('language')->get($key);
@@ -328,9 +328,9 @@ class WalleeHelper {
 	 * Retrieves order information from front and backend.
 	 *
 	 * @param int $order_id
-	 * @return array
+	 * @return array<string, mixed>
 	 */
-	public function getOrder($order_id){
+	public function getOrder(int $order_id): array {
 		if ($this->isAdmin()) {
 			$this->registry->get('load')->model('sale/order');
 			return $this->registry->get('model_sale_order')->getOrder($order_id);
@@ -342,31 +342,34 @@ class WalleeHelper {
 	/**
 	 * Returns the order model which offers methods to retrieve order information - not to add or edit.
 	 *
-	 * @return Model
+	 * @return object
 	 */
-	public function getOrderModel(){
+	public function getOrderModel(): object {
 		if ($this->isAdmin()) {
 			$this->registry->get('load')->model('sale/order');
 			return $this->registry->get('model_sale_order');
 		}
-		else {
-			$this->registry->get('load')->model('account/order');
-			return $this->registry->get('model_account_order');
-		}
+		
+		$this->registry->get('load')->model('account/order');
+		return $this->registry->get('model_account_order');
 	}
 
-	public function getCustomer(){
+	/**
+	 * @return array<string, mixed>
+	 */
+	public function getCustomer(): array {
 		$data = $this->registry->get('session')->data;
-		if ($this->registry->get('customer') && $this->registry->get('customer')->isLogged()) {
+		if ($this->registry->get('customer')?->isLogged()) {
 			$customer_id = $this->registry->get('session')->data['customer_id'];
 			$this->registry->get('load')->model('account/customer');
-			$customer = $this->registry->get('model_account_customer')->getCustomer($customer_id);
-			return $customer;
+			return $this->registry->get('model_account_customer')->getCustomer($customer_id);
 		}
-		else if (isset($data['guest'])) {
+		
+		if (isset($data['guest'])) {
 			return $data['guest'];
 		}
-		return array();
+		
+		return [];
 	}
 
 	/**
@@ -460,7 +463,12 @@ class WalleeHelper {
 		return $this->registry->get('session')->data['currency'] ?? 'USD';
 	}
 
-	public function translate($strings, $language = null){
+	/**
+	 * @param array<string, string> $strings
+	 * @param string|null $language
+	 * @return string
+	 */
+	public function translate(array $strings, ?string $language = null): string {
 		$language = $this->getCleanLanguageCode($language);
 		if (isset($strings[$language])) {
 			return $strings[$language];
@@ -473,43 +481,36 @@ class WalleeHelper {
 				if ($primary_language && isset($strings[$primary_language->getIetfCode()])) {
 					return $strings[$primary_language->getIetfCode()];
 				}
-			}
-			catch (Exception $e) {
+			} catch (\Exception $e) {
+				$this->log($e, self::LOG_ERROR);
 			}
 		}
+		
 		if (isset($strings[self::FALLBACK_LANGUAGE])) {
 			return $strings[self::FALLBACK_LANGUAGE];
 		}
-		$this->log("Could not find translation for given string", self::LOG_ERROR);
+		
+		$this->log("Keine Übersetzung für den gegebenen String gefunden", self::LOG_ERROR);
 		$this->log($strings, self::LOG_ERROR);
-		$this->log($primary_language, self::LOG_ERROR);
+		
 		return array_shift($strings);
 	}
 
 	/**
 	 * Returns the proper language code, [a-z]{2}-[A-Z]{2}
 	 *
-	 * @param string $language
+	 * @param string|null $language
 	 * @return string
 	 */
-	public function getCleanLanguageCode($language = null){
-		if ($language == null) {
+	public function getCleanLanguageCode(?string $language = null): string {
+		if ($language === null) {
 			$config = $this->registry->get('config');
-			if (isset($this->registry->get('session')->data['language'])) {
-				$language = $this->registry->get('session')->data['language'];
-			}
-			else if ($config->has('language_code')) {
-				$language = $config->get('language_code');
-			}
-			else if (!$this->isAdmin() && $config->has('config_language')) {
-				$language = $config->get('config_language');
-			}
-			else if ($config->has('language_default')) {
-				$language = $config->get('language_default');
-			}
-			else if ($this->isAdmin() && $config->has('config_admin_language')) {
-				$language = $config->get('config_admin_language');
-			}
+			$language = $this->registry->get('session')->data['language'] 
+				?? $config->get('language_code')
+				?? (!$this->isAdmin() ? $config->get('config_language') : null)
+				?? $config->get('language_default')
+				?? ($this->isAdmin() ? $config->get('config_admin_language') : null)
+				?? 'en-GB';
 		}
 
 		$prefixWithDash = substr($language, 0, 3);
@@ -519,192 +520,244 @@ class WalleeHelper {
 	}
 
 	/**
-	 *
-	 * @return Wallee\Sdk\ApiClient
+	 * @return \Wallee\Sdk\ApiClient
+	 * @throws \RuntimeException
 	 */
-	public function getApiClient(){
+	public function getApiClient(): \Wallee\Sdk\ApiClient {
 		if ($this->apiClient === null) {
 			$this->refreshApiClient();
 		}
 		return $this->apiClient;
 	}
 
-	public function refreshApiClient(){
-		$this->apiClient = new Wallee\Sdk\ApiClient($this->registry->get('config')->get('wallee_user_id'),
-			$this->registry->get('config')->get('wallee_application_key'));
+	/**
+	 * @throws \RuntimeException
+	 */
+	public function refreshApiClient(): void {
+		$config = $this->registry->get('config');
+		$userId = $config->get('wallee_user_id');
+		$applicationKey = $config->get('wallee_application_key');
+		
+		if (!$userId || !$applicationKey) {
+			throw new \RuntimeException('API Zugangsdaten sind nicht konfiguriert.');
+		}
+		
+		$this->apiClient = new \Wallee\Sdk\ApiClient($userId, $applicationKey);
 		$this->apiClient->setBasePath(self::getBaseUrl() . "/api");
+		
 		foreach (self::getDefaultHeaderData() as $key => $value) {
 			$this->apiClient->addDefaultHeader($key, $value);
 		}
-		if ($this->registry->get('config')->get('wallee_log_level') >= self::LOG_DEBUG) {
+		
+		if ($config->get('wallee_log_level') >= self::LOG_DEBUG) {
 			$this->apiClient->enableDebugging();
 			$this->apiClient->setDebugFile(DIR_LOGS . "wallee_communication.log");
 		}
 	}
 
-	public function getCache(){
-		return $this->registry->get('cache');
+	/**
+	 * @return object
+	 * @throws \RuntimeException
+	 */
+	public function getCache(): object {
+		$cache = $this->registry->get('cache');
+		if (!$cache) {
+			throw new \RuntimeException('Cache-System ist nicht verfügbar.');
+		}
+		return $cache;
 	}
 
-	public function getSuccessUrl(){
-		return WalleeVersionHelper::createUrl($this->getCatalogUrl(), 'checkout/success', array(
-			'utm_nooverride' => 1
-		), $this->registry->get('config')->get('config_secure'));
+	/**
+	 * @return string
+	 */
+	public function getSuccessUrl(): string {
+		return WalleeVersionHelper::createUrl(
+			$this->getCatalogUrl(), 
+			'checkout/success', 
+			['utm_nooverride' => 1], 
+			$this->registry->get('config')->get('config_secure')
+		);
 	}
 
-	public function getFailedUrl($order_id){
-		return str_replace('&amp;', '&',
-				WalleeVersionHelper::createUrl($this->getCatalogUrl(), 'extension/wallee/transaction/fail',
-						array(
-							'order_id' => $order_id,
-							'utm_nooverride' => 1
-						), $this->registry->get('config')->get('config_secure')));
+	/**
+	 * @param int $order_id
+	 * @return string
+	 */
+	public function getFailedUrl(int $order_id): string {
+		return str_replace(
+			'&amp;', 
+			'&',
+			WalleeVersionHelper::createUrl(
+				$this->getCatalogUrl(),
+				'extension/wallee/transaction/fail',
+				[
+					'order_id' => $order_id,
+					'utm_nooverride' => 1
+				],
+				$this->registry->get('config')->get('config_secure')
+			)
+		);
 	}
 
-	public function getWebhookUrl(){
-		return WalleeVersionHelper::createUrl($this->getCatalogUrl(), 'extension/wallee/webhook', '',
-				$this->registry->get('config')->get('config_secure'));
+	/**
+	 * @return string
+	 */
+	public function getWebhookUrl(): string {
+		return WalleeVersionHelper::createUrl(
+			$this->getCatalogUrl(), 
+			'extension/wallee/webhook', 
+			'',
+			$this->registry->get('config')->get('config_secure')
+		);
 	}
 
 	/**
 	 * Checks if the given order_id exists, is associated with a wallee transaction, and the permissions to access it are set.
 	 *
-	 * @param string $order_id
+	 * @param int $order_id
+	 * @return bool
 	 */
-	public function isValidOrder($order_id){
+	public function isValidOrder(int $order_id): bool {
 		if (!$this->isAdmin()) {
 			$order_info = $this->getOrder($order_id);
-			if ($this->registry->get('customer') && $this->registry->get('customer')->isLogged() &&
-					isset($this->registry->get('session')->data['customer_id'])) {
-				if ($this->registry->get('session')->data['customer_id'] != $order_info['customer_id']) {
-					return false;
-				}
+			$customer = $this->registry->get('customer');
+			
+			if (!$customer?->isLogged() || !isset($this->registry->get('session')->data['customer_id'])) {
+				return false;
 			}
-			else {
+			
+			if ($this->registry->get('session')->data['customer_id'] !== $order_info['customer_id']) {
 				return false;
 			}
 		}
+		
 		$transaction_info = \Wallee\Entity\TransactionInfo::loadByOrderId($this->registry, $order_id);
-		return $transaction_info->getId() != null;
+		return $transaction_info->getId() !== null;
 	}
 
 	/**
-	 * "wallee_pending_status_id"
-	 * "wallee_processing_status_id"
-	 * "wallee_failed_status_id"
-	 * "wallee_voided_status_id"
-	 * "wallee_decline_status_id"
-	 * "wallee_fulfill_status_id"
-	 * "wallee_confirmed_status_id"
-	 * "wallee_authorized_status_id"
-	 * "wallee_completed_status_id"
-	 * "wallee_refund_status_id"
-	 *
-	 * @param string $order_id
-	 * @param string|int $status Key for wallee status mapping, e.g. wallee_completed_status_id, or the order status id
-	 * which should be applied.
+	 * Updates the order status and adds a history entry.
+	 * 
+	 * @param int $order_id
+	 * @param string|int $status Key for wallee status mapping or order status ID
 	 * @param string $message
-	 * @param boolean $notify
-	 * @param boolean $force If the history should be added even if status is still the same.
-	 * @throws Exception
+	 * @param bool $notify
+	 * @param bool $force If the history should be added even if status is still the same
+	 * @throws \RuntimeException
 	 */
-	public function addOrderHistory($order_id, $status, $message = '', $notify = false, $force = false){
-		$this->log(__METHOD__ . " (ID: $order_id, Status: $status, Message: $message, Notify: $notify");
+	public function addOrderHistory(int $order_id, $status, string $message = '', bool $notify = false, bool $force = false): void {
+		$this->log(__METHOD__ . " (ID: $order_id, Status: $status, Message: $message, Notify: $notify)", self::LOG_DEBUG);
+		
 		if ($this->isAdmin()) {
-			$this->log('Called addOrderHistory from admin context - unsupported.', self::LOG_ERROR);
-			throw new Exception("addOrderHistory from admin not supported"); // should never occur. always via webhook
+			$this->log('addOrderHistory wurde aus Admin-Kontext aufgerufen - nicht unterstützt.', self::LOG_ERROR);
+			throw new \RuntimeException('addOrderHistory aus Admin-Kontext wird nicht unterstützt');
 		}
-		if (!ctype_digit($status)) {
+		
+		if (!is_numeric($status)) {
 			$status = $this->registry->get('config')->get($status);
 		}
+		
 		$this->registry->get('load')->model('checkout/order');
 		$model = $this->registry->get('model_checkout_order');
 		$order = $model->getOrder($order_id);
+		
 		if ($order['order_status_id'] !== $status || $force) {
 			$model->addOrderHistory($order_id, $status, $message, $notify);
-		}
-		else {
-			$this->log("Skipped adding order history, same status & !force.");
+		} else {
+			$this->log("Überspringe Hinzufügen des Bestellverlaufs, gleicher Status & !force.", self::LOG_DEBUG);
 		}
 	}
 
-	public function ensurePaymentCode(array $order_info, \Wallee\Sdk\Model\Transaction $transaction){
+	/**
+	 * @param array<string, mixed> $order_info
+	 * @param \Wallee\Sdk\Model\Transaction $transaction
+	 * @throws \RuntimeException
+	 */
+	public function ensurePaymentCode(array $order_info, \Wallee\Sdk\Model\Transaction $transaction): void {
 		$allowed = $transaction->getAllowedPaymentMethodConfigurations();
 		$code = null;
+		
 		if (count($allowed) === 1) {
 			$code = 'wallee_' . $allowed[0];
-		}
-		else if (!empty($transaction->getPaymentConnectorConfiguration()) &&
-				!empty($transaction->getPaymentConnectorConfiguration()->getPaymentMethodConfiguration())) {
+		} elseif ($transaction->getPaymentConnectorConfiguration() !== null && 
+				$transaction->getPaymentConnectorConfiguration()->getPaymentMethodConfiguration() !== null) {
 			$code = 'wallee_' . $transaction->getPaymentConnectorConfiguration()->getPaymentMethodConfiguration()->getId();
-		}
-		else {
-			$this->log("No payment method on transaction, skipping payment code setting.", self::LOG_DEBUG);
+		} else {
+			$this->log("Keine Zahlungsmethode in der Transaktion, überspringe Payment-Code-Einstellung.", self::LOG_DEBUG);
 			$this->log($transaction, self::LOG_DEBUG);
 			return;
 		}
+		
 		if ($order_info['payment_code'] === $code) {
 			return;
 		}
+		
 		$db = $this->registry->get('db');
 		$table = DB_PREFIX . 'order';
 		$code = $db->escape($code);
 		$title = $db->escape($transaction->getPaymentConnectorConfiguration()->getPaymentMethodConfiguration()->getName());
 		$order_id = $db->escape($order_info['order_id']);
+		
 		$query = "UPDATE `$table` SET `payment_code`='$code', `payment_method`='$title' WHERE `order_id`='$order_id';";
-		$this->log("Changing payment method on order: [" . $query . "], was [" . $order_info['payment_code'] . "]", self::LOG_DEBUG);
-		$db->query($query);
+		$this->log("Ändere Zahlungsmethode der Bestellung: [$query], war [{$order_info['payment_code']}]", self::LOG_DEBUG);
+		
+		if (!$db->query($query)) {
+			throw new \RuntimeException('Fehler beim Aktualisieren der Zahlungsmethode.');
+		}
 	}
 
 	/**
-	 *
-	 * @return Url
+	 * @return \Url
 	 */
-	private function getCatalogUrl(){
+	private function getCatalogUrl(): \Url {
 		if ($this->catalog_url === null) {
 			if ($this->isAdmin()) {
 				$config = $this->registry->get('config');
-				$this->catalog_url = new Url($this->getStoreUrl(false), $this->getStoreUrl($config->get('config_secure')));
+				$this->catalog_url = new \Url(
+					$this->getStoreUrl(false), 
+					$this->getStoreUrl($config->get('config_secure'))
+				);
 				$this->catalog_url->addRewrite($this);
-			}
-			else {
+			} else {
 				$this->catalog_url = $this->registry->get('url');
 			}
 		}
 		return $this->catalog_url;
 	}
 
-	private function getStoreUrl($ssl = true){
+	/**
+	 * @param bool $ssl
+	 * @return string
+	 */
+	private function getStoreUrl(bool $ssl = true): string {
 		$config = $this->registry->get('config');
-		if ($config->get('config_store_id') == 0) { // zero and null!
+		
+		if ($config->get('config_store_id') == 0) {
 			if ($this->isAdmin()) {
-				if ($ssl) {
-					return HTTPS_CATALOG;
-				}
-				return HTTP_CATALOG;
+				return $ssl ? HTTPS_CATALOG : HTTP_CATALOG;
 			}
-			if ($ssl) {
-				return HTTPS_SERVER;
-			}
-			return HTTP_SERVER;
+			return $ssl ? HTTPS_SERVER : HTTP_SERVER;
 		}
-		if ($ssl) {
-			return $config->get('config_ssl');
-		}
-		return $config->get('config_url');
+		
+		return $ssl ? $config->get('config_ssl') : $config->get('config_url');
 	}
 
-	public function rewrite($url){
-		return str_replace(array(
-			HTTP_SERVER,
-			HTTPS_SERVER
-		), array(
-			HTTP_CATALOG,
-			HTTPS_CATALOG
-		), $url);
+	/**
+	 * @param string $url
+	 * @return string
+	 */
+	public function rewrite(string $url): string {
+		return str_replace(
+			[HTTP_SERVER, HTTPS_SERVER],
+			[HTTP_CATALOG, HTTPS_CATALOG],
+			$url
+		);
 	}
 
-	public function isAdmin(){
+	/**
+	 * @return bool
+	 */
+	public function isAdmin(): bool {
 		return defined('HTTPS_CATALOG') && defined('HTTP_CATALOG');
 	}
 
@@ -715,8 +768,8 @@ class WalleeHelper {
 	 * @param int $page
 	 * @return int
 	 */
-	public function getLimitStart($page){
-		$limit = $this->registry->get('config')->get('config_limit_admin');
+	public function getLimitStart(int $page): int {
+		$limit = (int)$this->registry->get('config')->get('config_limit_admin');
 		return ($page - 1) * $limit;
 	}
 
@@ -727,8 +780,8 @@ class WalleeHelper {
 	 * @param int $page
 	 * @return int
 	 */
-	public function getLimitEnd($page){
-		$limit = $this->registry->get('config')->get('config_limit_admin');
+	public function getLimitEnd(int $page): int {
+		$limit = (int)$this->registry->get('config')->get('config_limit_admin');
 		return $page * $limit;
 	}
 
@@ -736,25 +789,30 @@ class WalleeHelper {
 	 * Disable inc vat setting in xfeepro.
 	 * Necessary to ensure taxes are calculated and transmitted correctly.
 	 */
-	public function xfeeproDisableIncVat(){
+	public function xfeeproDisableIncVat(): void {
 		$config = $this->registry->get('config');
 		$xfeepro = $config->get('xfeepro');
-		if ($xfeepro) {
-			$xfeepro = unserialize(base64_decode($xfeepro));
-			$this->xfeepro = $xfeepro;
-			if (isset($xfeepro['inc_vat'])) {
-				foreach ($xfeepro['inc_vat'] as $i => $value) {
-					$xfeepro['inc_vat'][$i] = 0;
-				}
-			}
-			$config->set('xfeepro', base64_encode(serialize($xfeepro)));
+		
+		if (!$xfeepro) {
+			return;
 		}
+		
+		$xfeepro = unserialize(base64_decode($xfeepro));
+		$this->xfeepro = $xfeepro;
+		
+		if (isset($xfeepro['inc_vat'])) {
+			foreach ($xfeepro['inc_vat'] as $i => $value) {
+				$xfeepro['inc_vat'][$i] = 0;
+			}
+		}
+		
+		$config->set('xfeepro', base64_encode(serialize($xfeepro)));
 	}
 
 	/**
 	 * Restore xfeepro settings.
 	 */
-	public function xfeeProRestoreIncVat(){
+	public function xfeeProRestoreIncVat(): void {
 		if ($this->xfeepro) {
 			$this->registry->get('config')->set('xfeepro', base64_encode(serialize($this->xfeepro)));
 		}
