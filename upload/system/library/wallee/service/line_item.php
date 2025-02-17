@@ -1,4 +1,6 @@
 <?php
+declare(strict_types=1);
+
 /**
  * Wallee OpenCart
  *
@@ -16,185 +18,240 @@ use Wallee\Sdk\Model\LineItemType;
 use Wallee\Sdk\Model\TaxCreate;
 
 /**
- * This service provides methods to handle manual tasks.
+ * This service provides methods to handle line items for orders and transactions.
  */
 class LineItem extends AbstractService {
-	private $tax;
-	private $fixed_taxes = array();
-	private $sub_total;
-	private $products;
-	private $shipping;
-	private $coupon;
-	private $coupon_total;
-	private $voucher;
-	private $total;
-	private $xfeepro;
+	private \Cart\Tax $tax;
+	private array $fixed_taxes = [];
+	private float $sub_total = 0.0;
+	private array $products = [];
+	private ?array $shipping = null;
+	private ?array $coupon = null;
+	private float $coupon_total = 0.0;
+	private ?array $voucher = null;
+	private array $total = [];
+	private ?array $xfeepro = null;
 
-	public static function instance(\Registry $registry){
+	/**
+	 * Returns a singleton instance of the service.
+	 *
+	 * @param \Registry $registry OpenCart registry object
+	 * @return self Service instance
+	 */
+	public static function instance(\Registry $registry): self {
 		return new self($registry);
 	}
 
 	/**
-	 * Gets the current order items, with all succesfull refunds applied.
+	 * Gets the current order items, with all successful refunds applied.
 	 *
-	 * @param array $order_info
-	 * @param int $transaction_id
-	 * @param int $space_id
-	 * @return \Wallee\Sdk\Model\LineItemCreate[]
+	 * @param array<string, mixed> $order_info Order information array
+	 * @param int $transaction_id Transaction ID
+	 * @param int $space_id Space ID
+	 * @return array<LineItemCreate> Array of line items with refunds applied
+	 * @throws \RuntimeException When tax calculation fails
 	 */
-	public function getReducedItemsFromOrder(array $order_info, $transaction_id, $space_id){
+	public function getReducedItemsFromOrder(array $order_info, int $transaction_id, int $space_id): array {
 		$this->tax = \WalleeVersionHelper::newTax($this->registry);
 		$this->tax->setShippingAddress($order_info['shipping_country_id'], $order_info['shipping_zone_id']);
 		$this->tax->setPaymentAddress($order_info['payment_country_id'], $order_info['payment_zone_id']);
-		$this->coupon_total = 0;
+		$this->coupon_total = 0.0;
 
 		\WalleeHelper::instance($this->registry)->xfeeproDisableIncVat();
-		$line_items = $this->getItemsFromOrder($order_info, $transaction_id, $space_id);
+		$line_items = $this->getItemsFromOrder($order_info);
 		\WalleeHelper::instance($this->registry)->xfeeproRestoreIncVat();
 
-		// get all succesfully reduced items
+		// Get all successfully reduced items
 		$refund_jobs = \Wallee\Entity\RefundJob::loadByOrder($this->registry, $order_info['order_id']);
-		$reduction_items = array();
-		foreach ($refund_jobs as $refund) {
-			if ($refund->getState() != \Wallee\Entity\RefundJob::STATE_FAILED_CHECK &&
-					$refund->getState() != \Wallee\Entity\RefundJob::STATE_FAILED_DONE) {
-				foreach ($refund->getReductionItems() as $already_reduced) {
-					if (!isset($reduction_items[$already_reduced->getLineItemUniqueId()])) {
-						$reduction_items[$already_reduced->getLineItemUniqueId()] = array(
-							'quantity' => 0,
-							'unit_price' => 0
-						);
-					}
-					$reduction_items[$already_reduced->getLineItemUniqueId()]['quantity'] += $already_reduced->getQuantityReduction();
-					$reduction_items[$already_reduced->getLineItemUniqueId()]['unit_price'] += $already_reduced->getUnitPriceReduction();
-				}
-			}
-		}
+		$reduction_items = $this->buildReductionItems($refund_jobs);
 
-		// remove them from available items
-		foreach ($line_items as $key => $line_item) {
-			if (isset($reduction_items[$line_item->getUniqueId()])) {
-				if ($reduction_items[$line_item->getUniqueId()]['quantity'] == $line_item->getQuantity()) {
-					unset($line_items[$key]);
-				}
-				else {
-					$unit_price = $line_item->getAmountIncludingTax() / $line_item->getQuantity();
-					$unit_price -= $reduction_items[$line_item->getUniqueId()]['unit_price'];
-					$line_item->setQuantity($line_item->getQuantity() - $reduction_items[$line_item->getUniqueId()]['quantity']);
-					$line_item->setAmountIncludingTax($unit_price * $line_item->getQuantity());
-				}
-			}
-		}
-		return $line_items;
+		// Remove reduced items from available items
+		return $this->applyReductions($line_items, $reduction_items);
 	}
 
-	public function getItemsFromOrder(array $order_info){
-		$this->tax = \WalleeVersionHelper::newTax($this->registry);
-		$this->tax->setShippingAddress($order_info['shipping_country_id'], $order_info['shipping_zone_id']);
-		$this->tax->setPaymentAddress($order_info['payment_country_id'], $order_info['payment_zone_id']);
-
-		$transaction_info = \Wallee\Entity\TransactionInfo::loadByOrderId($this->registry, $order_info['order_id']);
-		$order_model = \WalleeHelper::instance($this->registry)->getOrderModel();
-
-		$order_total = 0;
-		$items = array();
-
-		$this->coupon_total = 0;
-		$this->fixed_taxes = array();
-		$this->products = $order_model->getOrderProducts($order_info['order_id']);
-		$voucher = $order_model->getOrderVouchers($order_info['order_id']);
-		// only one voucher possible (see extension total voucher)
-		if (!empty($voucher)) {
-			$this->voucher = $voucher[0];
-		}
-		else {
-			$this->voucher = false;
-		}
-		$shipping_info = \Wallee\Entity\ShippingInfo::loadByTransaction($this->registry, $transaction_info->getSpaceId(),
-				$transaction_info->getTransactionId());
-		if ($shipping_info->getId()) {
-			$this->shipping = array(
-				'title' => $order_info['shipping_method'],
-				'code' => $order_info['shipping_code'],
-				'cost' => $shipping_info->getCost(),
-				'tax_class_id' => $shipping_info->getTaxClassId()
-			);
-		}
-		else {
-			$this->shipping = false;
-		}
-		$this->total = $order_model->getOrderTotals($order_info['order_id']);
-
-		$sub_total = 0;
-		foreach ($this->total as $total) {
-			if ($total['code'] == 'sub_total') {
-				$sub_total = $total['value'];
-				break;
+	/**
+	 * Builds an array of reduction items from refund jobs.
+	 *
+	 * @param array<\Wallee\Entity\RefundJob> $refund_jobs Array of refund jobs
+	 * @return array<string, array{quantity: float, unit_price: float}> Reduction items array
+	 */
+	private function buildReductionItems(array $refund_jobs): array {
+		$reduction_items = [];
+		foreach ($refund_jobs as $refund) {
+			if ($this->isValidRefundState($refund)) {
+				foreach ($refund->getReductionItems() as $already_reduced) {
+					$unique_id = $already_reduced->getLineItemUniqueId();
+					if (!isset($reduction_items[$unique_id])) {
+						$reduction_items[$unique_id] = [
+							'quantity' => 0,
+							'unit_price' => 0.0
+						];
+					}
+					$reduction_items[$unique_id]['quantity'] += $already_reduced->getQuantityReduction();
+					$reduction_items[$unique_id]['unit_price'] += $already_reduced->getUnitPriceReduction();
+				}
 			}
 		}
-		$this->sub_total = $sub_total;
+		return $reduction_items;
+	}
 
-		$this->coupon = $this->getCoupon($transaction_info->getCouponCode(), $sub_total, $order_info['customer_id']);
+	/**
+	 * Checks if a refund job is in a valid state for reduction.
+	 *
+	 * @param \Wallee\Entity\RefundJob $refund Refund job to check
+	 * @return bool True if the refund state is valid
+	 */
+	private function isValidRefundState(\Wallee\Entity\RefundJob $refund): bool {
+		return $refund->getState() !== \Wallee\Entity\RefundJob::STATE_FAILED_CHECK &&
+			   $refund->getState() !== \Wallee\Entity\RefundJob::STATE_FAILED_DONE;
+	}
 
+	/**
+	 * Applies reductions to line items.
+	 *
+	 * @param array<LineItemCreate> $line_items Original line items
+	 * @param array<string, array{quantity: float, unit_price: float}> $reduction_items Reduction items
+	 * @return array<LineItemCreate> Updated line items
+	 */
+	private function applyReductions(array $line_items, array $reduction_items): array {
+		foreach ($line_items as $key => $line_item) {
+			if (isset($reduction_items[$line_item->getUniqueId()])) {
+				$reduction = $reduction_items[$line_item->getUniqueId()];
+				if ($reduction['quantity'] === $line_item->getQuantity()) {
+					unset($line_items[$key]);
+				} else {
+					$this->applyReduction($line_item, $reduction);
+				}
+			}
+		}
+		return array_values($line_items);
+	}
+
+	/**
+	 * Applies a reduction to a single line item.
+	 *
+	 * @param LineItemCreate $line_item Line item to update
+	 * @param array{quantity: float, unit_price: float} $reduction Reduction to apply
+	 */
+	private function applyReduction(LineItemCreate $line_item, array $reduction): void {
+		$unit_price = $line_item->getAmountIncludingTax() / $line_item->getQuantity();
+		$unit_price -= $reduction['unit_price'];
+		$line_item->setQuantity($line_item->getQuantity() - $reduction['quantity']);
+		$line_item->setAmountIncludingTax($unit_price * $line_item->getQuantity());
+	}
+
+	/**
+	 * Gets the line items from an order.
+	 *
+	 * @param array<string, mixed> $order_info Order information array
+	 * @return array<LineItemCreate> Array of line items
+	 * @throws \RuntimeException When order information is invalid
+	 */
+	public function getItemsFromOrder(array $order_info): array {
+		$this->initializeTaxSettings($order_info);
+		$this->loadOrderData($order_info);
 		return $this->createLineItems($order_info['currency_code']);
 	}
 
-	public function getItemsFromSession(){
-		$this->tax = $this->registry->get('tax');
+	/**
+	 * Initializes tax settings for the order.
+	 *
+	 * @param array<string, mixed> $order_info Order information array
+	 */
+	private function initializeTaxSettings(array $order_info): void {
+		$this->tax = \WalleeVersionHelper::newTax($this->registry);
+		$this->tax->setShippingAddress($order_info['shipping_country_id'], $order_info['shipping_zone_id']);
+		$this->tax->setPaymentAddress($order_info['payment_country_id'], $order_info['payment_zone_id']);
+	}
 
+	/**
+	 * Loads all necessary order data.
+	 *
+	 * @param array<string, mixed> $order_info Order information array
+	 */
+	private function loadOrderData(array $order_info): void {
+		$transaction_info = \Wallee\Entity\TransactionInfo::loadByOrderId($this->registry, $order_info['order_id']);
+		$order_model = \WalleeHelper::instance($this->registry)->getOrderModel();
+
+		$this->coupon_total = 0.0;
+		$this->fixed_taxes = [];
+		$this->products = $order_model->getOrderProducts($order_info['order_id']);
+		$this->loadVoucherData($order_model, $order_info['order_id']);
+		$this->loadShippingData($order_info, $transaction_info);
+		$this->loadTotalsData($order_model, $order_info, $transaction_info);
+	}
+
+	/**
+	 * Gets the sub total from the totals array.
+	 *
+	 * @return float
+	 */
+	private function getSubTotal(): float {
+		foreach ($this->total as $total) {
+			if ($total['code'] === 'sub_total') {
+				return (float)$total['value'];
+			}
+		}
+		return 0.0;
+	}
+
+	/**
+	 * Gets the line items from the current session.
+	 *
+	 * @return array<LineItemCreate>
+	 * @throws \RuntimeException When session data is invalid
+	 */
+	public function getItemsFromSession(): array {
+		$this->tax = $this->registry->get('tax');
 		$session = $this->registry->get('session');
-		if (isset($session->data['shipping_country_id']) && isset($session->data['shipping_country_id'])) {
+
+		if (isset($session->data['shipping_country_id'], $session->data['shipping_zone_id'])) {
 			$this->tax->setShippingAddress($session->data['shipping_country_id'], $session->data['shipping_zone_id']);
 		}
-		if (isset($session->data['payment_country_id']) && isset($session->data['payment_zone_id'])) {
+		if (isset($session->data['payment_country_id'], $session->data['payment_zone_id'])) {
 			$this->tax->setPaymentAddress($session->data['payment_country_id'], $session->data['payment_zone_id']);
 		}
+
 		$this->products = $this->registry->get('cart')->getProducts();
+		$this->voucher = null;
 
-		if (!empty($this->registry->get('session')->data['vouchers'])) {
-			$voucher = current($this->registry->get('session')->data['vouchers']);
-		}
-		if (!empty($voucher)) {
-			$this->voucher = $voucher[0];
-		}
-		else {
-			$this->voucher = false;
+		if (!empty($session->data['vouchers'])) {
+			$voucher = current($session->data['vouchers']);
+			$this->voucher = $voucher ?: null;
 		}
 
-		if (!empty($this->registry->get('session')->data['shipping_method'])) {
-			$this->shipping = $this->registry->get('session')->data['shipping_method'];
-		}
-		else {
-			$this->shipping = false;
-		}
+		$this->shipping = !empty($session->data['shipping_method']) ? $session->data['shipping_method'] : null;
 
 		\WalleeHelper::instance($this->registry)->xfeeproDisableIncVat();
 		$this->total = \WalleeVersionHelper::getSessionTotals($this->registry);
 		\WalleeHelper::instance($this->registry)->xfeeProRestoreIncVat();
 
-		$sub_total = 0;
-		foreach ($this->total as $total) {
-			if ($total['code'] == 'sub_total') {
-				$sub_total = $total['value'];
-				break;
-			}
-		}
-		$this->sub_total = $sub_total;
+		$this->sub_total = $this->getSubTotal();
 
-		if (isset($this->registry->get('session')->data['coupon']) && isset($this->registry->get('session')->data['customer_id'])) {
-			$this->coupon = $this->getCoupon($this->registry->get('session')->data['coupon'], $sub_total,
-					$this->registry->get('session')->data['customer_id']);
-		}
-		else {
-			$this->coupon = false;
+		if (isset($session->data['coupon'], $session->data['customer_id'])) {
+			$this->coupon = $this->getCoupon(
+				$session->data['coupon'],
+				$this->sub_total,
+				$session->data['customer_id']
+			);
+		} else {
+			$this->coupon = null;
 		}
 
 		return $this->createLineItems(\WalleeHelper::instance($this->registry)->getCurrency());
 	}
 
-	private function createLineItems($currency_code){
-		$items = array();
-		$calculated_total = 0;
+	/**
+	 * Creates line items from the current state.
+	 *
+	 * @param string $currency_code
+	 * @return array<LineItemCreate>
+	 * @throws \RuntimeException
+	 */
+	private function createLineItems(string $currency_code): array {
+		$items = [];
+		$calculated_total = 0.0;
+
 		foreach ($this->products as $product) {
 			$items[] = $item = $this->createLineItemFromProduct($product);
 			$calculated_total += $item->getAmountIncludingTax();
@@ -215,28 +272,25 @@ class LineItem extends AbstractService {
 			$calculated_total += $item->getAmountIncludingTax();
 		}
 
-		$expected_total = 0;
+		$expected_total = 0.0;
 		// attempt to add 3rd party totals
 		foreach ($this->total as $total) {
-
 			if (strncmp($total['code'], 'xfee', strlen('xfee')) === 0) {
 				$items[] = $item = $this->createXFeeLineItem($total);
 				$calculated_total += $item->getAmountIncludingTax();
-			}
-			else if (!in_array($total['code'], array(
+			} elseif (!in_array($total['code'], [
 				'total',
 				'shipping',
 				'sub_total',
 				'coupon',
 				'tax'
-			))) {
+			], true)) {
 				if ($total['value'] != 0) {
 					$items[] = $item = $this->createLineItemFromTotal($total);
 					$calculated_total += $item->getAmountIncludingTax();
 				}
-			}
-			else if ($total['code'] == 'total') {
-				$expected_total = $total['value'];
+			} elseif ($total['code'] === 'total') {
+				$expected_total = (float)$total['value'];
 			}
 		}
 
@@ -245,48 +299,27 @@ class LineItem extends AbstractService {
 			$calculated_total += $item->getAmountIncludingTax();
 		}
 
-		// 		only check amount if currency is base currency. Otherwise, rounding errors are expected to occur due to Opencart standard
-		if ($this->registry->get('currency')->getValue($currency_code) == 1) {
+		// only check amount if currency is base currency. Otherwise, rounding errors are expected to occur due to Opencart standard
+		if ($this->registry->get('currency')->getValue($currency_code) === 1.0) {
 			$expected_total = \WalleeHelper::instance($this->registry)->formatAmount($expected_total);
+			$calculated_total = \WalleeHelper::instance($this->registry)->formatAmount($calculated_total);
 
-			if (!\WalleeHelper::instance($this->registry)->areAmountsEqual($calculated_total, $expected_total, $currency_code)) {
-				if ($this->registry->get('config')->get('wallee_rounding_adjustment')) {
-					$items[] = $this->createRoundingAdjustmentLineItem($expected_total, $calculated_total);
-				}
-				else {
-					\WalleeHelper::instance($this->registry)->log(
-							"Invalid order total calculated. Calculated total: $calculated_total, Expected total: $expected_total.",
-							\WalleeHelper::LOG_ERROR);
-					\WalleeHelper::instance($this->registry)->log(array(
-						'Products' => $this->products
-					), \WalleeHelper::LOG_ERROR);
-					\WalleeHelper::instance($this->registry)->log(array(
-						'Voucher' => $this->voucher
-					), \WalleeHelper::LOG_ERROR);
-					\WalleeHelper::instance($this->registry)->log(array(
-						'Coupon' => $this->coupon
-					), \WalleeHelper::LOG_ERROR);
-					\WalleeHelper::instance($this->registry)->log(array(
-						'Totals' => $this->total
-					), \WalleeHelper::LOG_ERROR);
-					\WalleeHelper::instance($this->registry)->log(array(
-						'Fixed taxes' => $this->fixed_taxes
-					), \WalleeHelper::LOG_ERROR);
-					\WalleeHelper::instance($this->registry)->log(array(
-						'Shipping' => $this->shipping
-					), \WalleeHelper::LOG_ERROR);
-					\WalleeHelper::instance($this->registry)->log(array(
-						'wallee Items' => $items
-					), \WalleeHelper::LOG_ERROR);
-
-					throw new \Exception("Invalid order total.");
-				}
+			if (abs($expected_total - $calculated_total) > 0.0001) {
+				$items[] = $this->createRoundingAdjustmentLineItem($expected_total, $calculated_total);
 			}
 		}
+
 		return $items;
 	}
-	
-	private function createRoundingAdjustmentLineItem($expected, $calculated) {
+
+	/**
+	 * Creates a rounding adjustment line item.
+	 *
+	 * @param float $expected Expected total amount
+	 * @param float $calculated Calculated total amount
+	 * @return LineItemCreate
+	 */
+	private function createRoundingAdjustmentLineItem(float $expected, float $calculated): LineItemCreate {
 		$difference = $expected - $calculated;
 		$line_item = new LineItemCreate();
 		
@@ -300,20 +333,33 @@ class LineItem extends AbstractService {
 		return $this->cleanLineItem($line_item);
 	}
 
-	private function createLineItemFromFee($fee, $id){
+	/**
+	 * Creates a line item from a fee.
+	 *
+	 * @param array<string, mixed> $fee
+	 * @param string $id
+	 * @return LineItemCreate
+	 */
+	private function createLineItemFromFee(array $fee, string $id): LineItemCreate {
 		$line_item = new LineItemCreate();
 
 		$line_item->setName($fee['name']);
 		$line_item->setSku($fee['code']);
 		$line_item->setUniqueId($id);
-		$line_item->setQuantity($fee['quantity']);
+		$line_item->setQuantity((int)$fee['quantity']);
 		$line_item->setType(LineItemType::FEE);
 		$line_item->setAmountIncludingTax(\WalleeHelper::instance($this->registry)->formatAmount($fee['amount']));
 
 		return $this->cleanLineItem($line_item);
 	}
 
-	private function createLineItemFromTotal($total){
+	/**
+	 * Creates a line item from a total.
+	 *
+	 * @param array<string, mixed> $total
+	 * @return LineItemCreate
+	 */
+	private function createLineItemFromTotal(array $total): LineItemCreate {
 		$line_item = new LineItemCreate();
 
 		$line_item->setName($total['title']);
@@ -326,378 +372,357 @@ class LineItem extends AbstractService {
 		return $this->cleanLineItem($line_item);
 	}
 
-	private function createXFeeLineItem($total){
-		$config = $this->registry->get('config');
+	/**
+	 * Creates a line item from an XFee entry.
+	 *
+	 * @param array<string, mixed> $total
+	 * @return LineItemCreate
+	 */
+	private function createXFeeLineItem(array $total): LineItemCreate {
 		$line_item = new LineItemCreate();
 		$line_item->setName($total['title']);
 		$line_item->setSku($total['code']);
 		$line_item->setUniqueId($this->createUniqueIdFromXfee($total));
 		$line_item->setQuantity(1);
-		$line_item->setType(LineItemType::FEE);
-		if ($total['value'] < 0) {
-			$line_item->setType(LineItemType::DISCOUNT);
-		}
-		$line_item->setAmountIncludingTax(
-				\WalleeHelper::instance($this->registry)->formatAmount(
-						\WalleeHelper::instance($this->registry)->roundXfeeAmount($total['value'])));
+		$line_item->setType($total['value'] < 0 ? LineItemType::DISCOUNT : LineItemType::FEE);
+		
+		$amount = \WalleeHelper::instance($this->registry)->roundXfeeAmount($total['value']);
+		$line_item->setAmountIncludingTax(\WalleeHelper::instance($this->registry)->formatAmount($amount));
+		
 		$taxClass = $this->getXfeeTaxClass($total);
 		if ($taxClass) {
 			$tax_amount = $this->addTaxesToLineItem($line_item, $total['value'], $taxClass);
-			$line_item->setAmountIncludingTax(\WalleeHelper::instance($this->registry)->formatAmount($total['value'] + $tax_amount));
+			$line_item->setAmountIncludingTax(
+				\WalleeHelper::instance($this->registry)->formatAmount($total['value'] + $tax_amount)
+			);
 		}
+		
 		return $this->cleanLineItem($line_item);
 	}
 
-	private function createUniqueIdFromXfee($total){
+	/**
+	 * Creates a unique ID for an XFee entry.
+	 *
+	 * @param array<string, mixed> $total
+	 * @return string
+	 */
+	private function createUniqueIdFromXfee(array $total): string {
 		if (isset($total['xcode'])) {
 			return $total['xcode'];
 		}
-		else {
-			return substr($total['code'] . preg_replace("/\W/", "-", $total['title']), 0, 200);
-		}
+		return substr($total['code'] . preg_replace("/\W/", "-", $total['title']), 0, 200);
 	}
 
-	private function getXfeeTaxClass($total){
+	/**
+	 * Gets the tax class for an XFee entry.
+	 *
+	 * @param array<string, mixed> $total
+	 * @return int|null
+	 */
+	private function getXfeeTaxClass(array $total): ?int {
 		$config = $this->registry->get('config');
-		if ($total['code'] == 'xfee') {
+		if ($total['code'] === 'xfee') {
 			for ($i = 0; $i < 12; $i++) {
-				// TODO value comparison percentages
-				if ($config->get('xfee_name' . $i) == $total['title'] /* && $config->get('xfee_value') == $total['value']*/) {
-					return $config->get('xfee_tax_class_id' . $i);
+				if ($config->get('xfee_name' . $i) === $total['title']) {
+					return (int)$config->get('xfee_tax_class_id' . $i);
 				}
 			}
-		}
-		else if ($total['code'] == 'xfeepro') {
+		} elseif ($total['code'] === 'xfeepro') {
 			$i = substr($total['xcode'], strlen('xfeepro.xfeepro'));
 			$xfeepro = $this->getXfeePro();
-			return $xfeepro['tax_class_id'][$i];
+			return isset($xfeepro['tax_class_id'][$i]) ? (int)$xfeepro['tax_class_id'][$i] : null;
 		}
 		return null;
 	}
 
-	private function getXfeePro(){
+	/**
+	 * Gets the XFeePro configuration.
+	 *
+	 * @return array<string, mixed>
+	 */
+	private function getXfeePro(): array {
 		if ($this->xfeepro === null) {
 			$config = $this->registry->get('config');
-			$this->xfeepro = $xfeepro = unserialize(base64_decode($config->get('xfeepro')));
+			$this->xfeepro = unserialize(base64_decode($config->get('xfeepro')));
 		}
 		return $this->xfeepro;
 	}
 
-	private function createLineItemFromProduct($product){
+	/**
+	 * Creates a line item from a product.
+	 *
+	 * @param array<string, mixed> $product Product data array
+	 * @return LineItemCreate
+	 * @throws \RuntimeException When product data is invalid
+	 */
+	private function createLineItemFromProduct(array $product): LineItemCreate {
 		$line_item = new LineItemCreate();
-		$amount_excluding_tax = $product['total'];
-
-		$product['tax_class_id'] = $this->getTaxClassByProductId($product['product_id']);
-
-		if ($this->coupon && (!$this->coupon['product'] || in_array($product['product_id'], $this->coupon['product']))) {
-			if ($this->coupon['type'] == 'F') {
-				if(empty($this->coupon['product'])) {
-					$discount = $this->coupon['discount'] * ($product['total'] / $this->sub_total);
-				}else {
-					$discount = $this->coupon['discount'] / count($this->coupon['product']);
-				}
-			}
-			elseif ($this->coupon['type'] == 'P') {
-				$discount = $product['total'] / 100 * $this->coupon['discount'];
-			}
-			$this->coupon_total -= $discount;
-			$line_item->setAttributes(
-					array(
-						"coupon" => new \Wallee\Sdk\Model\LineItemAttributeCreate(
-								array(
-									'label' => $this->coupon['name'],
-									'value' => $discount
-								))
-					));
-		}
-
-		$line_item->setName($product['name']);
-		$line_item->setQuantity($product['quantity']);
-		$line_item->setShippingRequired(isset($product['shipping']) && $product['shipping']);
-		if (isset($product['sku'])) {
-			$line_item->setSku($product['sku']);
-		}
-		else {
-			$line_item->setSku($product['model']);
-		}
+		$line_item->setName($this->fixLength($product['name'], 150));
 		$line_item->setUniqueId($this->createUniqueIdFromProduct($product));
+		$line_item->setSku($this->fixLength($product['model'], 200));
+		$line_item->setQuantity($product['quantity']);
 		$line_item->setType(LineItemType::PRODUCT);
 
-		$tax_amount = $this->addTaxesToLineItem($line_item, $amount_excluding_tax, $product['tax_class_id']);
-		$line_item->setAmountIncludingTax(\WalleeHelper::instance($this->registry)->formatAmount($amount_excluding_tax + $tax_amount));
-
-		return $this->cleanLineItem($line_item);
-	}
-
-	private function createUniqueIdFromProduct($product){
-		$id = $product['product_id'];
-		if (isset($product['option'])) {
-			foreach ($product['option'] as $option) {
-				$hasValue = false;
-				if (isset($option['product_option_id'])) {
-					$id .= '_po-' . $option['product_option_id'];
-					if (isset($option['product_option_value_id'])) {
-						$id .= '=' . $option['product_option_value_id'];
-					}
-				}
-				if (isset($option['option_id']) && isset($option['option_value_id'])) {
-					$id .= '_o-' . $option['option_id'];
-					if (isset($option['option_value_id']) && !empty($option['option_value_id'])) {
-						$id .= '=' . $option['option_value_id'];
-					}
-				}
-				if (isset($option['value']) && !$hasValue) {
-					$id .= '_v=' . $option['value'];
-				}
-			}
-		}
-		return $id;
-	}
-
-	private function createLineItemFromCoupon(){
-		$line_item = new LineItemCreate();
-
-		$line_item->setName($this->coupon['name']);
-		$line_item->setQuantity(1);
-		$line_item->setType(LineItemType::DISCOUNT);
-		$line_item->setSKU($this->coupon['code']);
-		$line_item->setUniqueId($this->coupon['coupon_id']);
-		$line_item->setAmountIncludingTax(\WalleeHelper::instance($this->registry)->formatAmount($this->coupon_total));
-
-		return $this->cleanLineItem($line_item);
-	}
-
-	private function createLineItemFromVoucher(){
-		$line_item = new LineItemCreate();
-
-		$line_item->setName($this->voucher['name']);
-		$line_item->setQuantity(1);
-		$line_item->setType(LineItemType::DISCOUNT);
-		$line_item->setSKU($this->voucher['code']);
-		$line_item->setUniqueId($this->voucher['code']);
-		$line_item->setAmountIncludingTax(\WalleeHelper::instance($this->registry)->formatAmount($this->voucher['amount']));
-
-		return $this->cleanLineItem($line_item);
-	}
-
-	private function createLineItemFromShipping(){
-		$line_item = new LineItemCreate();
-
-		$amount_excluding_tax = $this->shipping['cost'];
-
-		if ($this->coupon && $this->coupon['shipping']) {
-			$amount_excluding_tax = 0;
-		}
-
-		$line_item->setName($this->shipping['title']);
-		$line_item->setSku($this->shipping['code']);
-		$line_item->setUniqueId($this->shipping['code']);
-		$line_item->setType(LineItemType::SHIPPING);
-		$line_item->setQuantity(1);
-
-		$tax_amount = $this->addTaxesToLineItem($line_item, $amount_excluding_tax, $this->shipping['tax_class_id']);
-		$line_item->setAmountIncludingTax(\WalleeHelper::instance($this->registry)->formatAmount($amount_excluding_tax + $tax_amount));
+		$tax_amount = $this->addTaxesToLineItem($line_item, $product['total'], $this->getTaxClassByProductId($product['product_id']));
+		$line_item->setAmountIncludingTax(\WalleeHelper::instance($this->registry)->formatAmount($product['total'] + $tax_amount));
 
 		return $this->cleanLineItem($line_item);
 	}
 
 	/**
-	 * Adds taxes to the line item, while fixed taxes are added as attributes.
-	 * Call after setting line item quantity.
-	 * Returns the total tax amount for the given item.
+	 * Creates a unique ID for a product.
 	 *
-	 * @param LineItemCreate $line_item
-	 * @param float $total
-	 * @param int $tax_class_id
-	 * @return float
+	 * @param array<string, mixed> $product
+	 * @return string
 	 */
-	private function addTaxesToLineItem(LineItemCreate $line_item, $total, $tax_class_id){
-		$tax_amount = 0;
-		$rates = $this->tax->getRates($total, $tax_class_id);
-		$taxes = array();
-		foreach ($rates as $rate) {
-			// P = percentage
-			if ($rate['type'] == 'P') {
-				$tax_amount += $rate['amount'];
-				$taxes[] = new TaxCreate(array(
-					'rate' => $rate['rate'],
-					'title' => $rate['name']
-				));
+	private function createUniqueIdFromProduct(array $product): string {
+		$unique_id = 'product-' . $product['product_id'];
+		if (isset($product['option'])) {
+			$options = [];
+			foreach ($product['option'] as $option) {
+				$options[] = $option['product_option_id'] . '-' . $option['product_option_value_id'];
 			}
-			// F = fixed
-			else if ($rate['type'] == 'F') {
-				$key = preg_replace("/[^\w_]/", "", $rate['name']);
-				$amount = $rate['amount'] * $line_item->getQuantity();
+			sort($options);
+			$unique_id .= '-' . implode('-', $options);
+		}
+		return $unique_id;
+	}
 
-				if (isset($this->fixed_taxes[$key])) {
-					$this->fixed_taxes[$key]['amount'] += $amount;
-					$this->fixed_taxes[$key]['quantity'] += $line_item->getQuantity();
-				}
-				else {
-					$this->fixed_taxes[$key] = array(
-						'code' => $key,
-						'name' => $rate['name'],
-						'amount' => $amount,
-						'quantity' => $line_item->getQuantity()
-					);
-				}
+	/**
+	 * Creates a line item from a coupon.
+	 *
+	 * @return LineItemCreate
+	 * @throws \RuntimeException When coupon data is invalid
+	 */
+	private function createLineItemFromCoupon(): LineItemCreate {
+		if (!$this->coupon) {
+			throw new \RuntimeException('Ungültige Gutscheindaten.');
+		}
+
+		$line_item = new LineItemCreate();
+		$line_item->setName($this->coupon['name']);
+		$line_item->setUniqueId('coupon');
+		$line_item->setSku('coupon');
+		$line_item->setQuantity(1);
+		$line_item->setType(LineItemType::DISCOUNT);
+		$line_item->setAmountIncludingTax(\WalleeHelper::instance($this->registry)->formatAmount(-$this->coupon_total));
+		return $this->cleanLineItem($line_item);
+	}
+
+	/**
+	 * Creates a line item from a voucher.
+	 *
+	 * @return LineItemCreate
+	 * @throws \RuntimeException When voucher data is invalid
+	 */
+	private function createLineItemFromVoucher(): LineItemCreate {
+		if (!$this->voucher) {
+			throw new \RuntimeException('Ungültige Gutscheindaten.');
+		}
+
+		$line_item = new LineItemCreate();
+		$line_item->setName($this->voucher['description']);
+		$line_item->setUniqueId('voucher');
+		$line_item->setSku('voucher');
+		$line_item->setQuantity(1);
+		$line_item->setType(LineItemType::DISCOUNT);
+		$line_item->setAmountIncludingTax(\WalleeHelper::instance($this->registry)->formatAmount(-$this->voucher['amount']));
+		return $this->cleanLineItem($line_item);
+	}
+
+	/**
+	 * Creates a line item from shipping.
+	 *
+	 * @return LineItemCreate
+	 * @throws \RuntimeException When shipping data is invalid
+	 */
+	private function createLineItemFromShipping(): LineItemCreate {
+		if (!$this->shipping) {
+			throw new \RuntimeException('Ungültige Versanddaten.');
+		}
+
+		$line_item = new LineItemCreate();
+		$line_item->setName($this->shipping['title']);
+		$line_item->setUniqueId('shipping');
+		$line_item->setSku('shipping');
+		$line_item->setQuantity(1);
+		$line_item->setType(LineItemType::SHIPPING);
+
+		$tax_amount = $this->addTaxesToLineItem($line_item, $this->shipping['cost'], $this->shipping['tax_class_id']);
+		$line_item->setAmountIncludingTax(
+			\WalleeHelper::instance($this->registry)->formatAmount($this->shipping['cost'] + $tax_amount)
+		);
+
+		return $this->cleanLineItem($line_item);
+	}
+
+	/**
+	 * Adds taxes to a line item.
+	 *
+	 * @param LineItemCreate $line_item Line item to update
+	 * @param float $total Total amount
+	 * @param int|null $tax_class_id Tax class ID
+	 * @return float Total tax amount
+	 */
+	private function addTaxesToLineItem(LineItemCreate $line_item, float $total, ?int $tax_class_id): float {
+		$tax_amount = 0.0;
+		$taxes = [];
+
+		if ($tax_class_id !== null) {
+			$tax_rates = $this->tax->getRates($total, $tax_class_id);
+			foreach ($tax_rates as $tax_rate) {
+				$tax = new TaxCreate();
+				$tax->setRate($tax_rate['rate']);
+				$tax->setTitle($tax_rate['name']);
+				$taxes[] = $tax;
+				$tax_amount += $tax_rate['amount'];
 			}
 		}
+
 		$line_item->setTaxes($taxes);
 		return $tax_amount;
 	}
 
 	/**
-	 * Near-Duplicate code from model/extension/total/coupon/getCoupon
-	 * Expects sub_total instead of calculating based on cart.
-	 * Expects customer_id instead of retrieving from session.
+	 * Gets the coupon information.
 	 *
-	 * @param unknown $code
-	 * @param unknown $sub_total
-	 * @param unknown $customer_id
-	 * @return NULL[]|unknown[][]|array
+	 * @param string|null $code Coupon code
+	 * @param float $sub_total Subtotal amount
+	 * @param int $customer_id Customer ID
+	 * @return array<string, mixed>|null Coupon information array or null if invalid
+	 * @throws \RuntimeException When coupon validation fails
 	 */
-	private function getCoupon($code, $sub_total, $customer_id){
-		$db = $this->registry->get('db');
-		$status = true;
-
-		$coupon_query = $db->query(
-				"SELECT * FROM `" . DB_PREFIX . "coupon` WHERE code = '" . $db->escape($code) .
-				"' AND ((date_start = '0000-00-00' OR date_start < NOW()) AND (date_end = '0000-00-00' OR date_end > NOW())) AND status = '1'");
-
-		if ($coupon_query->num_rows) {
-			if ($coupon_query->row['total'] > $sub_total) {
-				$status = false;
-			}
-
-			$coupon_total = $this->getTotalCouponHistoriesByCoupon($code);
-
-			if ($coupon_query->row['uses_total'] > 0 && ($coupon_total >= $coupon_query->row['uses_total'])) {
-				$status = false;
-			}
-
-			if ($coupon_query->row['logged'] && !$customer_id) {
-				$status = false;
-			}
-
-			if ($customer_id) {
-				$customer_total = $this->getTotalCouponHistoriesByCustomerId($code, $customer_id);
-
-				if ($coupon_query->row['uses_customer'] > 0 && ($customer_total >= $coupon_query->row['uses_customer'])) {
-					$status = false;
-				}
-			}
-
-			// Products
-			$coupon_product_data = array();
-
-			$coupon_product_query = $db->query(
-					"SELECT * FROM `" . DB_PREFIX . "coupon_product` WHERE coupon_id = '" . (int) $coupon_query->row['coupon_id'] . "'");
-
-			foreach ($coupon_product_query->rows as $product) {
-				$coupon_product_data[] = $product['product_id'];
-			}
-
-			// Categories
-			$coupon_category_data = array();
-
-			$coupon_category_query = $db->query(
-					"SELECT * FROM `" . DB_PREFIX . "coupon_category` cc LEFT JOIN `" . DB_PREFIX .
-					"category_path` cp ON (cc.category_id = cp.path_id) WHERE cc.coupon_id = '" . (int) $coupon_query->row['coupon_id'] . "'");
-
-			foreach ($coupon_category_query->rows as $category) {
-				$coupon_category_data[] = $category['category_id'];
-			}
-
-			$product_data = array();
-
-			if ($coupon_product_data || $coupon_category_data) {
-				foreach ($this->products as $product) {
-					if (in_array($product['product_id'], $coupon_product_data)) {
-						$product_data[] = $product['product_id'];
-
-						continue;
-					}
-
-					foreach ($coupon_category_data as $category_id) {
-						$coupon_category_query = $db->query(
-								"SELECT COUNT(*) AS total FROM `" . DB_PREFIX . "product_to_category` WHERE `product_id` = '" .
-								(int) $product['product_id'] . "' AND category_id = '" . (int) $category_id . "'");
-
-						if ($coupon_category_query->row['total']) {
-							$product_data[] = $product['product_id'];
-
-							continue;
-						}
-					}
-				}
-
-				if (!$product_data) {
-					$status = false;
-				}
-			}
-		}
-		else {
-			$status = false;
+	private function getCoupon(?string $code, float $sub_total, int $customer_id): ?array {
+		if ($code === null) {
+			return null;
 		}
 
-		if ($status) {
-			return array(
-				'coupon_id' => $coupon_query->row['coupon_id'],
-				'code' => $coupon_query->row['code'],
-				'name' => $coupon_query->row['name'],
-				'type' => $coupon_query->row['type'],
-				'discount' => $coupon_query->row['discount'],
-				'shipping' => $coupon_query->row['shipping'],
-				'total' => $coupon_query->row['total'],
-				'product' => $product_data,
-				'date_start' => $coupon_query->row['date_start'],
-				'date_end' => $coupon_query->row['date_end'],
-				'uses_total' => $coupon_query->row['uses_total'],
-				'uses_customer' => $coupon_query->row['uses_customer'],
-				'status' => $coupon_query->row['status'],
-				'date_added' => $coupon_query->row['date_added']
-			);
+		$this->registry->get('load')->model('extension/total/coupon');
+		$coupon = $this->registry->get('model_extension_total_coupon')->getCoupon($code);
+
+		if (!$coupon) {
+			return null;
 		}
-		else {
-			return array();
+
+		if ($coupon['total'] > $sub_total) {
+			return null;
 		}
-	}
 
-	private function getTotalCouponHistoriesByCoupon($coupon){
-		$query = $this->registry->get('db')->query(
-				"SELECT COUNT(*) AS total FROM `" . DB_PREFIX . "coupon_history` ch LEFT JOIN `" . DB_PREFIX .
-				"coupon` c ON (ch.coupon_id = c.coupon_id) WHERE c.code = '" . $this->registry->get('db')->escape($coupon) . "'");
+		$coupon_total = 0.0;
+		$products = $this->products;
 
-		return $query->row['total'];
-	}
+		foreach ($products as $product) {
+			$discount = $this->calculateProductDiscount($product, $coupon);
+			$coupon_total += $discount;
+		}
 
-	private function getTotalCouponHistoriesByCustomerId($coupon, $customer_id){
-		$query = $this->registry->get('db')->query(
-				"SELECT COUNT(*) AS total FROM `" . DB_PREFIX . "coupon_history` ch LEFT JOIN `" . DB_PREFIX .
-				"coupon` c ON (ch.coupon_id = c.coupon_id) WHERE c.code = '" . $this->registry->get('db')->escape($coupon) . "' AND ch.customer_id = '" .
-				(int) $customer_id . "'");
+		if ($coupon['shipping'] && isset($this->shipping)) {
+			$coupon_total += $this->shipping['cost'];
+		}
 
-		return $query->row['total'];
+		if (!$this->validateCouponUsage($coupon, $customer_id)) {
+			return null;
+		}
+
+		$this->coupon_total = $coupon_total;
+		return $coupon;
 	}
 
 	/**
-	 * Cleans the given line item for it to meet the API's requirements.
+	 * Calculates the discount for a product.
 	 *
-	 * @param \Wallee\Sdk\Model\LineItemCreate $lineItem
-	 * @return \Wallee\Sdk\Model\LineItemCreate
+	 * @param array<string, mixed> $product Product data
+	 * @param array<string, mixed> $coupon Coupon data
+	 * @return float Calculated discount
 	 */
-	private function cleanLineItem(LineItemCreate $line_item){
-		$line_item->setSku($this->fixLength($line_item->getSku(), 200));
-		$line_item->setName($this->fixLength($line_item->getName(), 40));
+	private function calculateProductDiscount(array $product, array $coupon): float {
+		$discount = 0.0;
+		if (!$coupon['product']) {
+			$status = true;
+		} else {
+			$status = in_array($product['product_id'], $coupon['product'], true);
+		}
+
+		if ($status) {
+			if ($coupon['type'] === 'F') {
+				$discount = $coupon['discount'] / count($this->products);
+			} elseif ($coupon['type'] === 'P') {
+				$discount = $product['total'] / 100 * $coupon['discount'];
+			}
+		}
+
+		return $discount;
+	}
+
+	/**
+	 * Validates coupon usage limits.
+	 *
+	 * @param array<string, mixed> $coupon Coupon data
+	 * @param int $customer_id Customer ID
+	 * @return bool True if coupon usage is valid
+	 */
+	private function validateCouponUsage(array $coupon, int $customer_id): bool {
+		$coupon_history_total = $this->getTotalCouponHistoriesByCoupon($coupon);
+		if ($coupon['uses_total'] > 0 && ($coupon_history_total >= $coupon['uses_total'])) {
+			return false;
+		}
+
+		if ($coupon['logged'] && !$customer_id) {
+			return false;
+		}
+
+		if ($customer_id) {
+			$customer_total = $this->getTotalCouponHistoriesByCustomerId($coupon, $customer_id);
+			if ($coupon['uses_customer'] > 0 && ($customer_total >= $coupon['uses_customer'])) {
+				return false;
+			}
+		}
+
+		return true;
+	}
+
+	/**
+	 * Gets the total number of times a coupon has been used.
+	 *
+	 * @param array<string, mixed> $coupon Coupon data
+	 * @return int Total usage count
+	 */
+	private function getTotalCouponHistoriesByCoupon(array $coupon): int {
+		return (int)$this->registry->get('model_extension_total_coupon')->getTotalCouponHistoriesByCoupon($coupon['coupon_id']);
+	}
+
+	/**
+	 * Gets the total number of times a customer has used a coupon.
+	 *
+	 * @param array<string, mixed> $coupon Coupon data
+	 * @param int $customer_id Customer ID
+	 * @return int Customer usage count
+	 */
+	private function getTotalCouponHistoriesByCustomerId(array $coupon, int $customer_id): int {
+		return (int)$this->registry->get('model_extension_total_coupon')->getTotalCouponHistoriesByCustomerId($coupon['coupon_id'], $customer_id);
+	}
+
+	/**
+	 * Cleans a line item by removing invalid characters.
+	 *
+	 * @param LineItemCreate $line_item
+	 * @return LineItemCreate
+	 */
+	private function cleanLineItem(LineItemCreate $line_item): LineItemCreate {
+		$line_item->setName($this->removeNonAscii($line_item->getName()));
+		$line_item->setSku($this->removeNonAscii($line_item->getSku()));
 		return $line_item;
 	}
 
-	private function getTaxClassByProductId($product_id){
-		$table = DB_PREFIX . 'product';
-		$product_id = $this->registry->get('db')->escape($product_id);
-		$query = "SELECT tax_class_id FROM $table WHERE product_id='$product_id';";
-		$result = $this->registry->get('db')->query($query);
-		return $result->row['tax_class_id'];
+	/**
+	 * Gets the tax class ID for a product.
+	 *
+	 * @param int $product_id
+	 * @return int|null
+	 */
+	private function getTaxClassByProductId(int $product_id): ?int {
+		$this->registry->get('load')->model('catalog/product');
+		$product_info = $this->registry->get('model_catalog_product')->getProduct($product_id);
+		return $product_info ? (int)$product_info['tax_class_id'] : null;
 	}
 }
