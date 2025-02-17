@@ -71,6 +71,21 @@ und dieses Projekt folgt [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   - Einheitliche Verwendung von modernen PHP-Konstrukten
   - Verbesserte Code-Formatierung und Lesbarkeit
 
+- Optimierung der `Webhook` Service-Klasse
+  - Hinzufügung von `declare(strict_types=1);`
+  - Verbesserung der Eigenschaftsdeklarationen mit Nullability und Typen
+  - Optimierung der `install` Methode:
+    - Strikte Typisierung für Parameter und Rückgabewert
+    - Verbesserte Fehlerbehandlung mit spezifischen Ausnahmen
+    - Klarere Logik für die Webhook-Installation
+  - Verbesserung der privaten Hilfsmethoden:
+    - Typsichere Implementierung mit präzisen Rückgabetypen
+    - Optimierte Webhook-URL und Listener-Verwaltung
+  - Entfernung von ungenutztem Code und veralteten Methoden
+  - Modernisierung der Array-Syntax
+  - Verbesserte Code-Formatierung und Lesbarkeit
+  - Umfassende PHPDoc-Dokumentation
+
 ### Sicherheit
 - Verbesserte Fehlerbehandlung in allen Service-Klassen
 - Sicherere SQL-Query-Generierung
