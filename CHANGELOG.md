@@ -24,11 +24,12 @@ und dieses Projekt folgt [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 - Optimierung der `Completion` Service-Klasse
   - Hinzufügung von `declare(strict_types=1);`
-  - Verbesserung der Fehlerbehandlung
-  - Aktualisierung der Methodensignaturen mit Rückgabetypen
-  - Implementierung von strikter Typisierung
-  - Verbesserung der PHPDoc-Kommentare
-  - Optimierung der Datenbankoperationen
+  - Verbesserung der Fehlerbehandlung mit spezifischen Ausnahmen
+  - Detailliertere PHPDoc-Kommentare für Ausnahmen
+  - Verbesserte Code-Formatierung für bessere Lesbarkeit
+  - Optimierung der Methodensignaturen
+  - Konsistente Verwendung von `catch`-Blöcken
+  - Verbesserte Strukturierung von Service-Aufrufen
 
 - Optimierung der `ManualTask` Service-Klasse
   - Hinzufügung von `declare(strict_types=1);`

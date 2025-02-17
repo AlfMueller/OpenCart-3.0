@@ -1,4 +1,6 @@
 <?php
+declare(strict_types=1);
+
 /**
  * Wallee OpenCart
  *
@@ -16,10 +18,20 @@ namespace Wallee\Service;
  */
 class Completion extends AbstractJob {
 
-	public function create(\Wallee\Entity\TransactionInfo $transaction_info){
+	/**
+	 * Creates a new completion job for the given transaction.
+	 *
+	 * @param \Wallee\Entity\TransactionInfo $transaction_info
+	 * @return \Wallee\Entity\CompletionJob
+	 * @throws \RuntimeException When the job creation fails
+	 */
+	public function create(\Wallee\Entity\TransactionInfo $transaction_info): \Wallee\Entity\CompletionJob {
 		try {
 			\WalleeHelper::instance($this->registry)->dbTransactionStart();
-			\WalleeHelper::instance($this->registry)->dbTransactionLock($transaction_info->getSpaceId(), $transaction_info->getTransactionId());
+			\WalleeHelper::instance($this->registry)->dbTransactionLock(
+				$transaction_info->getSpaceId(),
+				$transaction_info->getTransactionId()
+			);
 			
 			$job = \Wallee\Entity\CompletionJob::loadNotSentForOrder($this->registry, $transaction_info->getOrderId());
 			if (!$job->getId()) {
@@ -28,28 +40,40 @@ class Completion extends AbstractJob {
 			}
 			
 			\WalleeHelper::instance($this->registry)->dbTransactionCommit();
-		}
-		catch (\Exception $e) {
+			return $job;
+		} catch (\Exception $e) {
 			\WalleeHelper::instance($this->registry)->dbTransactionRollback();
-			throw $e;
+			throw new \RuntimeException(
+				sprintf('Fehler beim Erstellen des Completion-Jobs: %s', $e->getMessage()),
+				$e->getCode(),
+				$e
+			);
 		}
-		
-		return $job;
 	}
 
-	public function send(\Wallee\Entity\CompletionJob $job){
+	/**
+	 * Sends the completion job to the gateway.
+	 *
+	 * @param \Wallee\Entity\CompletionJob $job
+	 * @return \Wallee\Entity\CompletionJob
+	 * @throws \Wallee\Sdk\ApiException When the API call fails
+	 * @throws \RuntimeException When the job update fails
+	 */
+	public function send(\Wallee\Entity\CompletionJob $job): \Wallee\Entity\CompletionJob {
 		try {
 			\WalleeHelper::instance($this->registry)->dbTransactionStart();
 			\WalleeHelper::instance($this->registry)->dbTransactionLock($job->getSpaceId(), $job->getTransactionId());
 			
-			$service = new \Wallee\Sdk\Service\TransactionCompletionService(\WalleeHelper::instance($this->registry)->getApiClient());
+			$service = new \Wallee\Sdk\Service\TransactionCompletionService(
+				\WalleeHelper::instance($this->registry)->getApiClient()
+			);
 			$operation = $service->completeOnline($job->getSpaceId(), $job->getTransactionId());
 			
-			if ($operation->getFailureReason() != null) {
+			if ($operation->getFailureReason() !== null) {
 				$job->setFailureReason($operation->getFailureReason()->getDescription());
 			}
 			
-			$labels = array();
+			$labels = [];
 			foreach ($operation->getLabels() as $label) {
 				$labels[$label->getDescriptor()->getId()] = $label->getContentAsString();
 			}
@@ -61,13 +85,15 @@ class Completion extends AbstractJob {
 			
 			\WalleeHelper::instance($this->registry)->dbTransactionCommit();
 			return $job;
-		}
-		catch (\Wallee\Sdk\ApiException $api_exception) {
+		} catch (\Wallee\Sdk\ApiException $api_exception) {
 			return $this->handleApiException($job, $api_exception);
-		}
-		catch (\Exception $e) {
+		} catch (\Exception $e) {
 			\WalleeHelper::instance($this->registry)->dbTransactionRollback();
-			throw $e;
+			throw new \RuntimeException(
+				sprintf('Fehler beim Senden des Completion-Jobs: %s', $e->getMessage()),
+				$e->getCode(),
+				$e
+			);
 		}
 	}
 }
