@@ -87,6 +87,41 @@ und dieses Projekt folgt [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   - Verbesserte Code-Formatierung und Lesbarkeit
   - Umfassende PHPDoc-Dokumentation
 
+- Optimierung der `Token` Service-Klasse
+  - Hinzufügung von `declare(strict_types=1);`
+  - Einführung von Namespace-Imports für bessere Lesbarkeit
+  - Verbesserte Property-Deklarationen mit Nullability
+  - Optimierte Methodensignaturen mit strikter Typisierung
+  - Verbesserte Fehlerbehandlung mit spezifischen Ausnahmen
+  - Modernisierung der Array-Syntax
+  - Typsichere Vergleiche mit `===` und `!==`
+  - Verbesserte Code-Formatierung und Lesbarkeit
+  - Präzisere PHPDoc-Kommentare
+
+- Optimierung der `MethodConfiguration` Service-Klasse
+  - Hinzufügung von `declare(strict_types=1);`
+  - Einführung von Namespace-Imports für bessere Lesbarkeit
+  - Verbesserte Klassendokumentation
+  - Optimierte Methodensignaturen mit strikter Typisierung
+  - Verbesserte Fehlerbehandlung
+  - Modernisierung der Array-Syntax
+  - Verwendung von match-Expression statt switch
+  - Typsichere Vergleiche mit `===` und `!==`
+  - Verbesserte Code-Formatierung und Lesbarkeit
+  - Präzisere PHPDoc-Kommentare
+
+- Optimierung der `LineItem` Service-Klasse
+  - Hinzufügung von `declare(strict_types=1);`
+  - Verbesserte Property-Deklarationen mit Nullability
+  - Optimierte Methodensignaturen mit strikter Typisierung
+  - Verbesserte Fehlerbehandlung mit spezifischen Ausnahmen
+  - Aufteilung der Gutschein-Verarbeitung in separate Methoden
+  - Einführung von Validierungsmethoden für Gutscheine
+  - Verbesserte Dokumentation mit präzisen PHPDoc-Kommentaren
+  - Optimierte Berechnung von Rabatten und Steuern
+  - Typsichere Implementierung aller Methoden
+  - Verbesserte Code-Organisation und Lesbarkeit
+
 ### Sicherheit
 - Verbesserte Fehlerbehandlung in allen Service-Klassen
 - Sicherere SQL-Query-Generierung
