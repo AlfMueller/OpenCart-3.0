@@ -40,6 +40,23 @@ und dieses Projekt folgt [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   - Aktualisierung der PHPDoc-Kommentare
   - Implementierung von besserer Fehlerbehandlung und Validierung
 
+- Optimierung der `Refund` Service-Klasse
+  - Hinzufügung von `declare(strict_types=1);`
+  - Verbesserung der `getExternalRefundId` Methode mit Rückgabetyp und PHPDoc
+  - Optimierung der `create` Methode:
+    - Detaillierte Array-Typdefinitionen für `$reductions`
+    - Strikte Typisierung für `$restock` Parameter
+    - Verbesserte Fehlerbehandlung mit spezifischen Meldungen
+  - Verbesserung der `send` Methode:
+    - Korrektur der API-Exception-Behandlung
+    - Typsichere Implementierung mit Rückgabetypen
+  - Optimierung der privaten Hilfsmethoden:
+    - Präzise Typdefinitionen für Arrays und Objekte
+    - Verbesserte Typumwandlungen für numerische Werte
+  - Einheitliche Verwendung von modernen PHP-Konstrukten
+  - Umfassende PHPDoc-Dokumentation
+  - Implementierung von strikter Fehlerbehandlung
+
 ### Sicherheit
 - Verbesserte Fehlerbehandlung in allen Service-Klassen
 - Sicherere SQL-Query-Generierung
