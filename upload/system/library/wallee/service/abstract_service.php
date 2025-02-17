@@ -1,4 +1,6 @@
 <?php
+declare(strict_types=1);
+
 /**
  * Wallee OpenCart
  *
@@ -12,20 +14,28 @@
 namespace Wallee\Service;
 
 /**
+ * Base class for all Wallee services.
  */
 abstract class AbstractService {
-	private static $instances = array();
-	protected $registry;
+	/** @var array<string, self> */
+	private static array $instances = [];
+	
+	protected \Registry $registry;
 
-	protected function __construct(\Registry $registry){
+	/**
+	 * @param \Registry $registry
+	 */
+	protected function __construct(\Registry $registry) {
 		$this->registry = $registry;
 	}
 
 	/**
+	 * Returns a singleton instance of the service.
 	 *
+	 * @param \Registry $registry
 	 * @return static
 	 */
-	public static function instance(\Registry $registry){
+	public static function instance(\Registry $registry): static {
 		$class = get_called_class();
 		if (!isset(self::$instances[$class])) {
 			self::$instances[$class] = new $class($registry);
@@ -41,7 +51,11 @@ abstract class AbstractService {
 	 * @param string $operator
 	 * @return \Wallee\Sdk\Model\EntityQueryFilter
 	 */
-	protected function createEntityFilter($field_name, $value, $operator = \Wallee\Sdk\Model\CriteriaOperator::EQUALS){
+	protected function createEntityFilter(
+		string $field_name,
+		mixed $value,
+		string $operator = \Wallee\Sdk\Model\CriteriaOperator::EQUALS
+	): \Wallee\Sdk\Model\EntityQueryFilter {
 		$filter = new \Wallee\Sdk\Model\EntityQueryFilter();
 		$filter->setType(\Wallee\Sdk\Model\EntityQueryFilterType::LEAF);
 		$filter->setOperator($operator);
@@ -57,7 +71,10 @@ abstract class AbstractService {
 	 * @param string $sort_order
 	 * @return \Wallee\Sdk\Model\EntityQueryOrderBy
 	 */
-	protected function createEntityOrderBy($field_name, $sort_order = \Wallee\Sdk\Model\EntityQueryOrderByType::DESC){
+	protected function createEntityOrderBy(
+		string $field_name,
+		string $sort_order = \Wallee\Sdk\Model\EntityQueryOrderByType::DESC
+	): \Wallee\Sdk\Model\EntityQueryOrderBy {
 		$order_by = new \Wallee\Sdk\Model\EntityQueryOrderBy();
 		$order_by->setFieldName($field_name);
 		$order_by->setSorting($sort_order);
@@ -71,17 +88,17 @@ abstract class AbstractService {
 	 * @param int $max_length
 	 * @return string
 	 */
-	protected function fixLength($string, $max_length){
+	protected function fixLength(string $string, int $max_length): string {
 		return mb_substr($string, 0, $max_length, 'UTF-8');
 	}
 
 	/**
-	 * Removes all non printable ASCII chars
+	 * Removes all non printable ASCII chars.
 	 *
 	 * @param string $string
-	 * @return $string
+	 * @return string
 	 */
-	protected function removeNonAscii($string){
-		return preg_replace('/[\x00-\x1F\x7F-\xFF]/', '', $string);
+	protected function removeNonAscii(string $string): string {
+		return (string)preg_replace('/[\x00-\x1F\x7F-\xFF]/', '', $string);
 	}
 }

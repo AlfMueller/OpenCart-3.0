@@ -1,4 +1,6 @@
 <?php
+declare(strict_types=1);
+
 /**
  * Wallee OpenCart
  *
@@ -22,10 +24,13 @@ abstract class AbstractJob extends AbstractService {
 	 * 
 	 * @param \Wallee\Entity\AbstractJob $job
 	 * @param \Wallee\Sdk\ApiException $api_exception
-	 * @throws \Exception
-	 * @return \Wallee\Service\AbstractJob
+	 * @return \Wallee\Entity\AbstractJob
+	 * @throws \RuntimeException
 	 */
-	protected function handleApiException(\Wallee\Entity\AbstractJob $job, \Wallee\Sdk\ApiException $api_exception){
+	protected function handleApiException(
+		\Wallee\Entity\AbstractJob $job,
+		\Wallee\Sdk\ApiException $api_exception
+	): \Wallee\Entity\AbstractJob {
 		try {
 			$job->setState(\Wallee\Entity\AbstractJob::STATE_FAILED_CHECK);
 			$job->setFailureReason([
@@ -34,14 +39,31 @@ abstract class AbstractJob extends AbstractService {
 			$job->save();
 			\WalleeHelper::instance($this->registry)->dbTransactionCommit();
 			return $job;
-		}
-		catch (\Exception $e) {
+		} catch (\Exception $e) {
 			\WalleeHelper::instance($this->registry)->dbTransactionRollback();
-			throw new \Exception($e->getMessage() . ' | ' . $api_exception->getMessage(), $e->getCode(), $api_exception);
+			throw new \RuntimeException(
+				sprintf(
+					'Job-Verarbeitung fehlgeschlagen: %s | API-Fehler: %s',
+					$e->getMessage(),
+					$api_exception->getMessage()
+				),
+				$e->getCode(),
+				$api_exception
+			);
 		}
 	}
 
-	protected function createBase(\Wallee\Entity\TransactionInfo $transaction_info, \Wallee\Entity\AbstractJob $job){
+	/**
+	 * Creates a base job with common properties set from the transaction info.
+	 *
+	 * @param \Wallee\Entity\TransactionInfo $transaction_info
+	 * @param \Wallee\Entity\AbstractJob $job
+	 * @return \Wallee\Entity\AbstractJob
+	 */
+	protected function createBase(
+		\Wallee\Entity\TransactionInfo $transaction_info,
+		\Wallee\Entity\AbstractJob $job
+	): \Wallee\Entity\AbstractJob {
 		$job->setTransactionId($transaction_info->getTransactionId());
 		$job->setOrderId($transaction_info->getOrderId());
 		$job->setSpaceId($transaction_info->getSpaceId());
