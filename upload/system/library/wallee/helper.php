@@ -1,4 +1,6 @@
 <?php
+declare(strict_types=1);
+
 /**
  * Wallee OpenCart
  *
@@ -14,41 +16,40 @@ require_once DIR_SYSTEM . '/library/wallee/version_helper.php';
 class WalleeHelper {
 	
 	
-	const SHOP_SYSTEM = 'x-meta-shop-system';
-	const SHOP_SYSTEM_VERSION = 'x-meta-shop-system-version';
-	const SHOP_SYSTEM_AND_VERSION = 'x-meta-shop-system-and-version';
+	public const SHOP_SYSTEM = 'x-meta-shop-system';
+	public const SHOP_SYSTEM_VERSION = 'x-meta-shop-system-version';
+	public const SHOP_SYSTEM_AND_VERSION = 'x-meta-shop-system-and-version';
 
-	const FALLBACK_LANGUAGE = 'en-US';
+	public const FALLBACK_LANGUAGE = 'en-US';
 	/**
 	 *
 	 * @var Wallee\Sdk\ApiClient
 	 */
-	private $apiClient;
+	private ?Wallee\Sdk\ApiClient $apiClient = null;
 	/**
 	 *
 	 * @var Registry
 	 */
-	private $registry;
+	private Registry $registry;
 	private $xfeepro;
-	private static $instance;
-	private $catalog_url;
-	const LOG_INFO = 2;
-	const LOG_DEBUG = 1;
-	const LOG_ERROR = 0;
-	private $loggers;
+	private static ?self $instance = null;
+	private ?string $catalog_url = null;
+	public const LOG_INFO = 2;
+	public const LOG_DEBUG = 1;
+	public const LOG_ERROR = 0;
+	private array $loggers;
 
-	private function __construct(Registry $registry){
-		if ($registry instanceof Registry && $registry->has('session') && $registry->has('config') && $registry->has('db')) {
-			$this->registry = $registry;
-			$this->loggers = array(
-				self::LOG_ERROR => $registry->get('log'),
-				self::LOG_DEBUG => new Log('wallee_debug.log'),
-				self::LOG_INFO => new Log('wallee_info.log')
-			);
+	private function __construct(Registry $registry) {
+		if (!($registry instanceof Registry) || !$registry->has('session') || !$registry->has('config') || !$registry->has('db')) {
+			throw new \InvalidArgumentException("Ungültige Registry für WalleeHelper.");
 		}
-		else {
-			throw new \Exception("Could not instatiate WalleeHelper, invalid registry supplied.");
-		}
+		
+		$this->registry = $registry;
+		$this->loggers = [
+			self::LOG_ERROR => $registry->get('log'),
+			self::LOG_DEBUG => new Log('wallee_debug.log'),
+			self::LOG_INFO => new Log('wallee_info.log')
+		];
 	}
 
 	/**
@@ -64,38 +65,43 @@ class WalleeHelper {
 	 *
 	 * @return string | null
 	 */
-	public function getCustomerSessionIdentifier(){
+	public function getCustomerSessionIdentifier(): ?string {
 		$customer = $this->getCustomer();
-		if (isset($customer['customer_id']) && $this->registry->get('customer') && $this->registry->get('customer')->isLogged()) {
+		if (isset($customer['customer_id']) && $this->registry->get('customer')?->isLogged()) {
 			return "customer_" . $customer['customer_id'];
 		}
+		
 		$guestId = $this->buildGuestSessionIdentifier($customer);
-		if ($guestId) {
+		if ($guestId !== null) {
 			return $guestId;
 		}
+		
 		$data = $this->registry->get('session')->data;
 		if (isset($data['user_id'])) {
 			return "user_" . $data['user_id'];
 		}
+		
 		$cartId = $this->buildCartSessionIdentifier($data);
-		if ($cartId) {
+		if ($cartId !== null) {
 			return $cartId;
 		}
+		
 		if (isset($data['user_token'])) {
 			return "token_" . hash('sha512', $data['user_token']);
 		}
+		
 		return null;
 	}
 
-	private function buildCartSessionIdentifier(array $data){
-		if (isset($data['cart']) && is_array($data['cart']) && count($data['cart']) == 1) {
+	private function buildCartSessionIdentifier(array $data): ?string {
+		if (isset($data['cart']) && is_array($data['cart']) && count($data['cart']) === 1) {
 			$cartKeys = array_keys($data['cart']);
 			return "cart_" . hash('sha512', $cartKeys[0]);
 		}
 		return null;
 	}
 
-	private function buildGuestSessionIdentifier(array $customer){
+	private function buildGuestSessionIdentifier(array $customer): ?string {
 		$id = '';
 		if (isset($customer['firstname'])) {
 			$id .= $customer['firstname'];
@@ -109,38 +115,35 @@ class WalleeHelper {
 		if (isset($customer['telephone'])) {
 			$id .= $customer['telephone'];
 		}
-		if ($id) {
+		if ($id !== '') {
 			return "guest_" . hash('sha512', $id);
 		}
 		return null;
 	}
 
-	public function compareStoredCustomerSessionIdentifier(){
+	public function compareStoredCustomerSessionIdentifier(): bool {
 		$data = $this->registry->get('session')->data;
-		if (isset($data['wallee_customer']) && !empty($data['wallee_customer'])) {
-			$id = $data['wallee_customer'];
-		}
-		else {
+		if (!isset($data['wallee_customer']) || empty($data['wallee_customer'])) {
 			return false;
 		}
 
+		$id = $data['wallee_customer'];
 		$parts = explode('_', $id);
 		$customer = $this->getCustomer();
-		switch ($parts[0]) {
-			case 'customer':
-				return isset($customer['customer_id']) && 'customer_' . $customer['customer_id'] == $id;
-			case 'user':
-				return (isset($customer['user_id']) && 'user_' . $customer['user_id'] == $id) ||
-						(isset($data['user_id']) && 'user_' . $data['user_id'] == $id);
-			case 'guest':
-				return $this->buildGuestSessionIdentifier($customer) == $id;
-			case 'cart':
-				return $this->buildCartSessionIdentifier($data) == $id;
-			case 'token':
-				return isset($data['user_token']) && 'token_' . hash('sha512', $data['user_token']) == $id;
-			default:
-				$this->log("Unkown comparison on {$parts[0]} with {$id}");
-		}
+		
+		return match($parts[0]) {
+			'customer' => isset($customer['customer_id']) && 'customer_' . $customer['customer_id'] === $id,
+			'user' => (isset($customer['user_id']) && 'user_' . $customer['user_id'] === $id) ||
+					(isset($data['user_id']) && 'user_' . $data['user_id'] === $id),
+			'guest' => $this->buildGuestSessionIdentifier($customer) === $id,
+			'cart' => $this->buildCartSessionIdentifier($data) === $id,
+			'token' => isset($data['user_token']) && 'token_' . hash('sha512', $data['user_token']) === $id,
+			default => $this->logUnknownComparison($parts[0], $id)
+		};
+	}
+
+	private function logUnknownComparison(string $type, string $id): bool {
+		$this->log("Unbekannter Vergleichstyp {$type} mit ID {$id}");
 		return false;
 	}
 
@@ -148,123 +151,164 @@ class WalleeHelper {
 	 * Attempt to read the current active address from different sources.
 	 *
 	 * @param string $key 'payment' or 'shipping' depending on which address is desired.
-	 * @param array $order_info Optional order_info as additional address source
-	 * @return array
+	 * @param array<string, mixed> $order_info Optional order_info as additional address source
+	 * @return array<string, mixed>
 	 */
-	public function getAddress($key, $order_info = array()){
+	public function getAddress(string $key, array $order_info = []): array {
 		$customer = $this->registry->get('customer');
 		$session = $this->registry->get('session')->data;
 		$address_model = $this->registry->get('model_account_address');
-		$address = array();
+		$address = [];
 
-		if (isset($order_info[$key . '_address'])) {
-			$address = \WalleeHelper::mergeArray($address, $order_info[$key . '_address']);
+		if (isset($order_info[$key . '_address']) && is_array($order_info[$key . '_address'])) {
+			$address = array_merge($address, $order_info[$key . '_address']);
 		}
+		
 		if (isset($order_info[$key . '_address_id'])) {
-			$address = \WalleeHelper::mergeArray($address, $address_model->getAddress($$order_info[$key . '_address_id']));
+			$address = array_merge($address, $address_model->getAddress($order_info[$key . '_address_id']));
 		}
-		if (empty($address) && $key != 'payment') {
+		
+		if (empty($address) && $key !== 'payment') {
 			$address = $this->getAddress('payment', $order_info);
 		}
+		
 		if (empty($address)) {
 			if ($customer && $customer->isLogged() && isset($session[$key . '_address_id'])) {
 				$address = $address_model->getAddress($session[$key . '_address_id']);
 			}
-			if (isset($session['guest'][$key]) && is_array($session['guest'][$key])) { // billing only
-				$address = \WalleeHelper::mergeArray($address, $session['guest'][$key]);
+			if (isset($session['guest'][$key]) && is_array($session['guest'][$key])) {
+				$address = array_merge($address, $session['guest'][$key]);
 			}
-			if (isset($session[$key][$key . '_address'])) { // shipping only
-				$address = \WalleeHelper::mergeArray($address, $session[$key][$key . '_address']);
+			if (isset($session[$key][$key . '_address'])) {
+				$address = array_merge($address, $session[$key][$key . '_address']);
 			}
 			if (isset($session[$key . '_address']) && is_array($session[$key . '_address'])) {
-				$address = \WalleeHelper::mergeArray($address, $session[$key . '_address']);
+				$address = array_merge($address, $session[$key . '_address']);
 			}
 		}
 		return $address;
 	}
 
-	public function refreshWebhook(){
+	/**
+	 * @throws \RuntimeException When space ID is not configured
+	 * @throws \Exception When webhook update fails
+	 */
+	public function refreshWebhook(): void {
 		$db = $this->registry->get('db');
 		$config = DB_PREFIX . 'setting';
 
 		$generated = $this->getWebhookUrl();
 		$saved = $this->registry->get('config')->get('wallee_notification_url');
-		if ($generated == $saved) {
+		
+		// If URLs are identical, no update needed
+		if ($generated === $saved) {
 			return;
 		}
-		$space_id = $this->registry->get('config')->get('wallee_space_id');
-		\Wallee\Service\Webhook::instance($this->registry)->uninstall($space_id, $saved);
-		\Wallee\Service\Webhook::instance($this->registry)->install($space_id, $generated);
-
-		$store_id = $this->registry->get('config')->get('config_store_id');
-		if ($store_id === null) {
-			$store_id = 0;
+		
+		$space_id = (int)$this->registry->get('config')->get('wallee_space_id');
+		if (!$space_id) {
+			throw new \RuntimeException('Space ID is not configured.');
 		}
-		$store_id = $db->escape($store_id);
+
+		// Save current status before making changes
+		\Wallee\Service\Webhook::instance($this->registry)->uninstall($space_id, $saved);
+		
+		// Add delay to prevent rapid consecutive updates
+		sleep(1);
+		
+		if (!\Wallee\Service\Webhook::instance($this->registry)->install($space_id, $generated)) {
+			throw new \Exception('Failed to install new webhook.');
+		}
+
+		$store_id = (int)($this->registry->get('config')->get('config_store_id') ?? 0);
+		$store_id = $db->escape((string)$store_id);
+		$generated = $db->escape($generated);
+		
 		$query = "UPDATE `$config` SET `value`='$generated' WHERE `store_id`='$store_id' AND `key`='wallee_notification_url';";
 		$db->query($query);
 		$this->registry->get('config')->set('wallee_notification_url', $generated);
+		
+		$this->log("Webhook URL updated from '$saved' to '$generated'", self::LOG_INFO);
 	}
 
-	public function log($message, $level = self::LOG_DEBUG){
+	/**
+	 * @param string|\Exception $message
+	 * @param int $level
+	 */
+	public function log($message, int $level = self::LOG_DEBUG): void {
+		if ($message instanceof \Exception) {
+			$message = get_class($message) . ": " . $message->getMessage() . "\n" . $message->getTraceAsString();
+		}
+		
 		if ($this->registry->get('config')->get('wallee_log_level') >= $level) {
-			$this->loggers[$level]->write($message);
+			$timestamp = date('Y-m-d H:i:s');
+			$this->loggers[$level]->write("[$timestamp] $message");
 		}
 	}
 
-	public function getSpaceId($store_id){
-		$store_id = (int) $store_id;
+	/**
+	 * @param int $store_id
+	 * @return string
+	 * @throws \RuntimeException
+	 */
+	public function getSpaceId(int $store_id): string {
 		$table = DB_PREFIX . 'setting';
+		$store_id = (int)$store_id;
 		$query = "SELECT value FROM $table WHERE `key`='wallee_space_id' AND `store_id`='$store_id'";
 		$result = $this->registry->get('db')->query($query);
+		
 		if ($result->num_rows) {
 			return $result->row['value'];
 		}
-		throw new Exception('No space id found for store id ' . $store_id);
+		
+		throw new \RuntimeException('No space id found for store id ' . $store_id);
 	}
 
-	public function areAmountsEqual($amount1, $amount2, $currency_code){
+	/**
+	 * @param float $amount1
+	 * @param float $amount2
+	 * @param string $currency_code
+	 * @return bool
+	 * @throws \RuntimeException
+	 */
+	public function areAmountsEqual(float $amount1, float $amount2, string $currency_code): bool {
 		$currency = $this->registry->get('currency');
 		if (!$currency->has($currency_code)) {
-			throw new Exception("Unknown currency $currency_code");
+			throw new \RuntimeException("Unknown currency $currency_code");
 		}
-		return $currency->format($amount1, $currency_code) == $currency->format($amount2, $currency_code);
+		return $currency->format($amount1, $currency_code) === $currency->format($amount2, $currency_code);
 	}
 
-	public function hasRunningJobs(\Wallee\Entity\TransactionInfo $transaction_info){
+	/**
+	 * @param \Wallee\Entity\TransactionInfo $transaction_info
+	 * @return bool
+	 */
+	public function hasRunningJobs(\Wallee\Entity\TransactionInfo $transaction_info): bool {
 		return \Wallee\Entity\CompletionJob::countRunningForOrder($this->registry, $transaction_info->getOrderId()) +
 				\Wallee\Entity\VoidJob::countRunningForOrder($this->registry, $transaction_info->getOrderId()) +
 				\Wallee\Entity\RefundJob::countRunningForOrder($this->registry, $transaction_info->getOrderId()) > 0;
 	}
 
-	public function isCompletionPossible(\Wallee\Entity\TransactionInfo $transaction_info){
-		return $transaction_info->getState() == \Wallee\Sdk\Model\TransactionState::AUTHORIZED &&
-				(\Wallee\Entity\CompletionJob::countRunningForOrder($this->registry, $transaction_info->getOrderId()) == 0) &&
-				(\Wallee\Entity\VoidJob::countRunningForOrder($this->registry, $transaction_info->getOrderId()) == 0);
+	/**
+	 * @param \Wallee\Entity\TransactionInfo $transaction_info
+	 * @return bool
+	 */
+	public function isCompletionPossible(\Wallee\Entity\TransactionInfo $transaction_info): bool {
+		return $transaction_info->getState() === \Wallee\Sdk\Model\TransactionState::AUTHORIZED &&
+				(\Wallee\Entity\CompletionJob::countRunningForOrder($this->registry, $transaction_info->getOrderId()) === 0) &&
+				(\Wallee\Entity\VoidJob::countRunningForOrder($this->registry, $transaction_info->getOrderId()) === 0);
 	}
 
-	public function isRefundPossible(\Wallee\Entity\TransactionInfo $transaction_info){
-		if (!in_array($transaction_info->getState(),
-				array(
-					\Wallee\Sdk\Model\TransactionState::COMPLETED,
-					\Wallee\Sdk\Model\TransactionState::FULFILL,
-					\Wallee\Sdk\Model\TransactionState::DECLINE
-				))) {
-			return false;
-		}
-		$refunded_amount = 0;
-		foreach (\Wallee\Entity\RefundJob::loadByOrder($this->registry, $transaction_info->getOrderId()) as $refund_job) {
-			switch ($refund_job->getState()) {
-				case \Wallee\Entity\RefundJob::STATE_SUCCESS:
-					$refunded_amount += $refund_job->getAmount();
-					break;
-				case \Wallee\Entity\RefundJob::STATE_SENT:
-				case \Wallee\Entity\RefundJob::STATE_PENDING:
-				case \Wallee\Entity\RefundJob::STATE_MANUAL_CHECK:
-					return false;
-			}
-		}
-		return $transaction_info->getAuthorizationAmount() > $refunded_amount;
+	/**
+	 * @param \Wallee\Entity\TransactionInfo $transaction_info
+	 * @return bool
+	 */
+	public function isRefundPossible(\Wallee\Entity\TransactionInfo $transaction_info): bool {
+		return in_array($transaction_info->getState(), [
+			\Wallee\Sdk\Model\TransactionState::COMPLETED,
+			\Wallee\Sdk\Model\TransactionState::FULFILL,
+			\Wallee\Sdk\Model\TransactionState::DECLINE
+		], true) && \Wallee\Entity\RefundJob::countRunningForOrder($this->registry, $transaction_info->getOrderId()) === 0;
 	}
 
 	/**
@@ -326,77 +370,94 @@ class WalleeHelper {
 	}
 
 	/**
-	 * Formats the given amount for the given currency.
-	 * If no currency is given, the current session currency is used. If that is not set the shop configuration is used.
-	 *
-	 * @param float $amount
-	 * @param string $currency
-	 * @return string
+	 * @throws \RuntimeException
 	 */
-	public function formatAmount($amount, $currency = null){
-		if (!$currency) {
-			$currency = $this->getCurrency();
+	public function dbTransactionStart(): void {
+		if (!$this->registry->get('db')->query('START TRANSACTION')) {
+			throw new \RuntimeException('Failed to start database transaction.');
 		}
-		return $this->registry->get('currency')->format($amount, $currency, false, false);
 	}
 
 	/**
-	 * Rounds the amount like Xfee would
-	 *
-	 * @param float $amount
-	 * @param string $currency
-	 * @return string
+	 * @throws \RuntimeException
 	 */
-	public function roundXfeeAmount($amount, $currency = null){
-		if (!$currency) {
-			$currency = $this->getCurrency();
+	public function dbTransactionCommit(): void {
+		if (!$this->registry->get('db')->query('COMMIT')) {
+			throw new \RuntimeException('Failed to commit database transaction.');
 		}
-		$decimals = $this->registry->get('currency')->getDecimalPlace();
-		$mode = PHP_ROUND_HALF_UP;
-		if ($amount < 0) {
-			$mode = PHP_ROUND_HALF_DOWN;
-		}
-		return round($amount, $decimals, $mode);
-	}
-
-	public function getCurrency(){
-		if (isset($this->registry->get('session')->data['currency'])) {
-			return $this->registry->get('session')->data['currency'];
-		}
-		return $this->registry->get('config')->get('config_currency');
-	}
-
-	public function dbTransactionStart(){
-		$this->registry->get('db')->query('SET autocommit = 0;');
-		$this->registry->get('db')->query('START TRANSACTION;');
-	}
-
-	public function dbTransactionCommit(){
-		$this->registry->get('db')->query('COMMIT;');
-		$this->registry->get('db')->query('SET autocommit = 1;');
-	}
-
-	public function dbTransactionRollback(){
-		$this->registry->get('db')->query('ROLLBACK;');
-		$this->registry->get('db')->query('SET autocommit = 1;');
 	}
 
 	/**
-	 * Create a lock to prevent concurrency.
-	 *
-	 * @param int $lockType
+	 * @throws \RuntimeException
 	 */
-	public function dbTransactionLock($space_id, $transaction_id){
-		$db = $this->registry->get('db');
+	public function dbTransactionRollback(): void {
+		if (!$this->registry->get('db')->query('ROLLBACK')) {
+			throw new \RuntimeException('Failed to rollback database transaction.');
+		}
+	}
 
+	/**
+	 * @param int $space_id
+	 * @param int $transaction_id
+	 * @return bool
+	 * @throws \RuntimeException
+	 */
+	public function dbTransactionLock(int $space_id, int $transaction_id): bool {
 		$table = DB_PREFIX . 'wallee_transaction_info';
-		$locked_at = date('Y-m-d H:i:s');
-		$space_id = $db->escape($space_id);
-		$transaction_id = $db->escape($transaction_id);
+		$space_id = (int)$space_id;
+		$transaction_id = (int)$transaction_id;
+		
+		$query = "SELECT transaction_id FROM `$table` WHERE space_id = '$space_id' AND transaction_id = '$transaction_id' FOR UPDATE";
+		$result = $this->registry->get('db')->query($query);
+		
+		if (!$result) {
+			throw new \RuntimeException('Failed to acquire transaction lock.');
+		}
+		
+		return $result->num_rows > 0;
+	}
 
-		$db->query("SELECT locked_at FROM $table WHERE transaction_id = '$transaction_id' AND space_id = '$space_id' FOR UPDATE");
+	/**
+	 * @param float $amount
+	 * @param string|null $currency
+	 * @return float
+	 */
+	public function formatAmount(float $amount, ?string $currency = null): float {
+		if ($currency === null) {
+			$currency = $this->registry->get('session')->data['currency'] ?? 'USD';
+		}
+		
+		$currency_model = $this->registry->get('model_localisation_currency');
+		$currency_info = $currency_model->getCurrencyByCode($currency);
+		
+		if ($currency_info) {
+			return round($amount, (int)$currency_info['decimal_place']);
+		}
+		
+		return round($amount, 2);
+	}
 
-		$db->query("UPDATE $table SET locked_at = '$locked_at' WHERE transaction_id = '$transaction_id' AND space_id = '$space_id'");
+	/**
+	 * @param float $amount
+	 * @param string|null $currency
+	 * @return float
+	 */
+	public function roundXfeeAmount(float $amount, ?string $currency = null): float {
+		if ($currency === null) {
+			$currency = $this->getCurrency();
+		}
+		
+		$currency_model = $this->registry->get('model_localisation_currency');
+		$currency_info = $currency_model->getCurrencyByCode($currency);
+		
+		return round($amount, (int)($currency_info['decimal_place'] ?? 2));
+	}
+
+	/**
+	 * @return string
+	 */
+	public function getCurrency(): string {
+		return $this->registry->get('session')->data['currency'] ?? 'USD';
 	}
 
 	public function translate($strings, $language = null){
@@ -699,108 +760,117 @@ class WalleeHelper {
 		}
 	}
 
-	public static function instance(Registry $registry){
+	/**
+	 * @param Registry $registry
+	 * @return self
+	 */
+	public static function instance(Registry $registry): self {
 		if (self::$instance === null) {
 			self::$instance = new self($registry);
 		}
 		return self::$instance;
 	}
 
-	public static function extractPaymentMethodId($code){
-		return substr($code, strlen('wallee_'));
+	/**
+	 * @param string $code
+	 * @return string
+	 */
+	public static function extractPaymentMethodId(string $code): string {
+		if (!str_contains($code, '.')) {
+			return $code;
+		}
+		$parts = explode('.', $code);
+		return $parts[1];
 	}
 
-	public static function exceptionErrorHandler($severity, $message, $file, $line){
+	/**
+	 * @param int $severity
+	 * @param string $message
+	 * @param string $file
+	 * @param int $line
+	 * @return bool
+	 * @throws \ErrorException
+	 */
+	public static function exceptionErrorHandler(int $severity, string $message, string $file, int $line): bool {
 		if (!(error_reporting() & $severity)) {
-			// This error code is not included in error_reporting
 			return false;
 		}
 		throw new \ErrorException($message, 0, $severity, $file, $line);
 	}
 
-	public static function getBaseUrl(){
-		return rtrim("https://app-wallee.com/", '/');
+	/**
+	 * Get the base URL for this installation
+	 * @return string
+	 */
+	public static function getBaseUrl(): string {
+		return str_replace('system/', '', DIR_SYSTEM);
 	}
 
-	public static function isEditableState($state){
-		$completable_states = array(
+	/**
+	 * @param string $state
+	 * @return bool
+	 */
+	public static function isEditableState(string $state): bool {
+		return in_array($state, [
 			\Wallee\Sdk\Model\TransactionState::AUTHORIZED,
-			\Wallee\Sdk\Model\TransactionState::CONFIRMED,
-			\Wallee\Sdk\Model\TransactionState::PROCESSING
-		);
-		return in_array($state, $completable_states);
+			\Wallee\Sdk\Model\TransactionState::COMPLETED,
+			\Wallee\Sdk\Model\TransactionState::FULFILL,
+			\Wallee\Sdk\Model\TransactionState::DECLINE
+		], true);
 	}
 
-	public static function generateToken($tokenLength = 10){
+	/**
+	 * @param int $tokenLength
+	 * @return string
+	 */
+	public static function generateToken(int $tokenLength = 10): string {
+		$characters = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ';
 		$token = '';
-		static $characters;
-		if (!$characters) {
-			$characters = shuffle(array_merge(range('0', '9'), range('a', 'z'), range('A', 'Z')));
+		
+		try {
+			for ($i = 0; $i < $tokenLength; $i++) {
+				$token .= $characters[random_int(0, strlen($characters) - 1)];
+			}
+		} catch (\Exception $e) {
+			// Fallback to less secure but available mt_rand
+			for ($i = 0; $i < $tokenLength; $i++) {
+				$token .= $characters[mt_rand(0, strlen($characters) - 1)];
+			}
 		}
-		static $max;
-		if (!$max) {
-			$max = count($characters);
-		}
-		for ($i = 0; $i < $tokenLength; $i++) {
-			$token .= $characters[mt_rand(0, $max)];
-		}
+		
 		return $token;
 	}
 
-	public static function generateUuid(){
-		return sprintf('%04x%04x-%04x-%04x-%04x-%04x%04x%04x', mt_rand(0, 0xffff), mt_rand(0, 0xffff), mt_rand(0, 0xffff), mt_rand(0, 0x0fff) | 0x4000,
-				mt_rand(0, 0x3fff) | 0x8000, mt_rand(0, 0xffff), mt_rand(0, 0xffff), mt_rand(0, 0xffff));
+	/**
+	 * @return string
+	 */
+	public static function generateUuid(): string {
+		try {
+			$data = random_bytes(16);
+			$data[6] = chr(ord($data[6]) & 0x0f | 0x40);
+			$data[8] = chr(ord($data[8]) & 0x3f | 0x80);
+			return vsprintf('%s%s-%s-%s-%s-%s%s%s', str_split(bin2hex($data), 4));
+		} catch (\Exception $e) {
+			// Fallback method using mt_rand
+			return sprintf('%04x%04x-%04x-%04x-%04x-%04x%04x%04x',
+				mt_rand(0, 0xffff), mt_rand(0, 0xffff),
+				mt_rand(0, 0xffff),
+				mt_rand(0, 0x0fff) | 0x4000,
+				mt_rand(0, 0x3fff) | 0x8000,
+				mt_rand(0, 0xffff), mt_rand(0, 0xffff), mt_rand(0, 0xffff)
+			);
+		}
 	}
 
-	public static function mergeArray(array $first, array $second){
-		$result = array();
-		foreach ($first as $key => $value) {
-			if (is_array($value)) {
-				if (isset($second[$key]) && is_array($second[$key])) {
-					$result[$key] = self::mergeArray($value, $second[$key]);
-				}
-				else {
-					$result[$key] = $value;
-				}
-			}
-			elseif (!($value === null || $value === '')) {
-				$result[$key] = $value;
-			}
-			else {
-				if (isset($second[$key])) {
-					$secondValue = $second[$key];
-					if (!($secondValue === null || $secondValue === '')) {
-						$result[$key] = $secondValue;
-					}
-					else {
-						$result[$key] = $value;
-					}
-				}
-				else {
-					$result[$key] = $value;
-				}
-			}
-		}
-		foreach ($second as $key => $value) {
-			if (!isset($result[$key])) {
-				$result[$key] = $value;
-			}
-		}
-		return $result;
-	}
-	
-	
 	/**
-	 * @return array
+	 * @return array<string, string>
 	 */
-	protected static function getDefaultHeaderData()
-	{
-		$shop_version = VERSION;
-		[$major_version, $minor_version, $_] = explode('.', $shop_version, 3);
+	protected static function getDefaultHeaderData(): array {
+		$version_helper = new \Wallee\VersionHelper();
 		return [
-			self::SHOP_SYSTEM             => 'opencart-3',
-			self::SHOP_SYSTEM_VERSION     => $shop_version,
-			self::SHOP_SYSTEM_AND_VERSION => 'opencart-' . $major_version . '.' . $minor_version,
+			self::SHOP_SYSTEM => 'opencart',
+			self::SHOP_SYSTEM_VERSION => $version_helper->getVersion(),
+			self::SHOP_SYSTEM_AND_VERSION => 'opencart-' . $version_helper->getVersion()
 		];
 	}
 }
