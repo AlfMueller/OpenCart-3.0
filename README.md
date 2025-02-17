@@ -22,6 +22,21 @@ Dieses Projekt befindet sich aktiv in der Entwicklung. Wir laden die Community h
 
 Jeder Beitrag ist willkommen! Gemeinsam können wir sicherstellen, dass das Modul auch in Zukunft sicher und effizient funktioniert.
 
+## Branch-Informationen
+
+Der aktuelle Entwicklungszweig ist `feature/php82-initial-setup`. Dieser Branch ist öffentlich zugänglich und kann von jedem eingesehen werden:
+
+```bash
+git clone https://github.com/AlfMueller/OpenCart-3.0.git
+git checkout feature/php82-initial-setup
+```
+
+Für eigene Entwicklungen empfehlen wir:
+1. Forken Sie das Repository
+2. Erstellen Sie einen eigenen Feature-Branch
+3. Committen Sie Ihre Änderungen
+4. Erstellen Sie einen Pull Request
+
 ## Anforderungen
 
 * [OpenCart](https://www.opencart.com/) 3.0.4.0
