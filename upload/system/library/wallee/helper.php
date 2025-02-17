@@ -13,32 +13,31 @@ declare(strict_types=1);
 require_once (DIR_SYSTEM . 'library/wallee/autoload.php');
 require_once DIR_SYSTEM . '/library/wallee/version_helper.php';
 
+/**
+ * Helper class for common functionality used across the Wallee payment module.
+ */
 class WalleeHelper {
-	
-	
 	public const SHOP_SYSTEM = 'x-meta-shop-system';
 	public const SHOP_SYSTEM_VERSION = 'x-meta-shop-system-version';
 	public const SHOP_SYSTEM_AND_VERSION = 'x-meta-shop-system-and-version';
-
 	public const FALLBACK_LANGUAGE = 'en-US';
-	/**
-	 *
-	 * @var Wallee\Sdk\ApiClient
-	 */
+	public const LOG_INFO = 2;
+	public const LOG_DEBUG = 1;
+	public const LOG_ERROR = 0;
+
 	private ?Wallee\Sdk\ApiClient $apiClient = null;
-	/**
-	 *
-	 * @var Registry
-	 */
 	private Registry $registry;
 	private $xfeepro;
 	private static ?self $instance = null;
 	private ?string $catalog_url = null;
-	public const LOG_INFO = 2;
-	public const LOG_DEBUG = 1;
-	public const LOG_ERROR = 0;
 	private array $loggers;
 
+	/**
+	 * Private constructor to enforce singleton pattern.
+	 *
+	 * @param Registry $registry The OpenCart registry
+	 * @throws \InvalidArgumentException When registry is invalid
+	 */
 	private function __construct(Registry $registry) {
 		if (!($registry instanceof Registry) || !$registry->has('session') || !$registry->has('config') || !$registry->has('db')) {
 			throw new \InvalidArgumentException("Ungültige Registry für WalleeHelper.");
@@ -53,17 +52,9 @@ class WalleeHelper {
 	}
 
 	/**
-	 * Create a customer identifier to verify that the session.
-	 * Either the customer id,
-	 * a concat of given values for guest (hashed),
-	 * the user id,
-	 * a hash of the current cart key,
-	 * a hash of the current token,
-	 * or the current order id.
+	 * Create a customer identifier to verify the session.
 	 *
-	 * If not enough information exists to create an identifier null is returned.
-	 *
-	 * @return string | null
+	 * @return string|null Customer identifier or null if not enough information exists
 	 */
 	public function getCustomerSessionIdentifier(): ?string {
 		$customer = $this->getCustomer();
@@ -93,6 +84,12 @@ class WalleeHelper {
 		return null;
 	}
 
+	/**
+	 * Builds a session identifier based on cart data.
+	 *
+	 * @param array<string, mixed> $data Session data
+	 * @return string|null Cart-based session identifier or null
+	 */
 	private function buildCartSessionIdentifier(array $data): ?string {
 		if (isset($data['cart']) && is_array($data['cart']) && count($data['cart']) === 1) {
 			$cartKeys = array_keys($data['cart']);
@@ -101,6 +98,12 @@ class WalleeHelper {
 		return null;
 	}
 
+	/**
+	 * Builds a session identifier for guest customers.
+	 *
+	 * @param array<string, mixed> $customer Customer data
+	 * @return string|null Guest-based session identifier or null
+	 */
 	private function buildGuestSessionIdentifier(array $customer): ?string {
 		$id = '';
 		if (isset($customer['firstname'])) {
@@ -121,6 +124,11 @@ class WalleeHelper {
 		return null;
 	}
 
+	/**
+	 * Compares the stored customer session identifier with the current one.
+	 *
+	 * @return bool True if the identifiers match
+	 */
 	public function compareStoredCustomerSessionIdentifier(): bool {
 		$data = $this->registry->get('session')->data;
 		if (!isset($data['wallee_customer']) || empty($data['wallee_customer'])) {
@@ -142,6 +150,13 @@ class WalleeHelper {
 		};
 	}
 
+	/**
+	 * Logs an unknown comparison type and returns false.
+	 *
+	 * @param string $type The unknown type
+	 * @param string $id The full identifier
+	 * @return bool Always returns false
+	 */
 	private function logUnknownComparison(string $type, string $id): bool {
 		$this->log("Unbekannter Vergleichstyp {$type} mit ID {$id}");
 		return false;
@@ -150,9 +165,9 @@ class WalleeHelper {
 	/**
 	 * Attempt to read the current active address from different sources.
 	 *
-	 * @param string $key 'payment' or 'shipping' depending on which address is desired.
+	 * @param string $key 'payment' or 'shipping' depending on which address is desired
 	 * @param array<string, mixed> $order_info Optional order_info as additional address source
-	 * @return array<string, mixed>
+	 * @return array<string, mixed> The combined address information
 	 */
 	public function getAddress(string $key, array $order_info = []): array {
 		$customer = $this->registry->get('customer');
@@ -190,6 +205,8 @@ class WalleeHelper {
 	}
 
 	/**
+	 * Refreshes the webhook configuration.
+	 *
 	 * @throws \RuntimeException When space ID is not configured
 	 * @throws \Exception When webhook update fails
 	 */
@@ -232,8 +249,10 @@ class WalleeHelper {
 	}
 
 	/**
-	 * @param string|\Exception $message
-	 * @param int $level
+	 * Logs a message with the specified log level.
+	 *
+	 * @param string|\Exception $message The message or exception to log
+	 * @param int $level The log level (LOG_ERROR, LOG_DEBUG, LOG_INFO)
 	 */
 	public function log($message, int $level = self::LOG_DEBUG): void {
 		if ($message instanceof \Exception) {
@@ -910,7 +929,7 @@ class WalleeHelper {
 			return vsprintf('%s%s-%s-%s-%s-%s%s%s', str_split(bin2hex($data), 4));
 		} catch (\Exception $e) {
 			// Fallback method using mt_rand
-			return sprintf('%04x%04x-%04x-%04x-%04x-%04x%04x%04x',
+			return sprintf('%04x%04x-%04x-%04x-%04x%04x%04x',
 				mt_rand(0, 0xffff), mt_rand(0, 0xffff),
 				mt_rand(0, 0xffff),
 				mt_rand(0, 0x0fff) | 0x4000,
