@@ -8,6 +8,19 @@ Dieses Repository enthält eine optimierte Version des Wallee Zahlungsmoduls fü
 - Speziell optimiert für OpenCart 3.0.4.0
 - Angepasst für volle PHP 8.2 Kompatibilität
 - Enthält wichtige Sicherheitsupdates und Verbesserungen
+- Aktiv in Entwicklung - Community-Beiträge willkommen!
+
+## Entwicklungsstatus & Mitwirkung
+
+Dieses Projekt befindet sich aktiv in der Entwicklung. Wir laden die Community herzlich ein, sich an der Weiterentwicklung zu beteiligen:
+
+- 🐛 Fehler melden über GitHub Issues
+- 💡 Verbesserungsvorschläge einbringen
+- 🔧 Pull Requests für Bugfixes oder neue Features einreichen
+- 📖 Dokumentation verbessern
+- 🌍 Übersetzungen beisteuern
+
+Jeder Beitrag ist willkommen! Gemeinsam können wir sicherstellen, dass das Modul auch in Zukunft sicher und effizient funktioniert.
 
 ## Anforderungen
 
