@@ -1,4 +1,6 @@
 <?php
+declare(strict_types=1);
+
 /**
  * Wallee OpenCart
  *
@@ -15,6 +17,12 @@ use Wallee\Sdk\Service\ChargeAttemptService;
 use Wallee\Sdk\Service\TransactionService;
 use Wallee\Sdk\Service\TransactionIframeService;
 use Wallee\Sdk\Service\TransactionPaymentPageService;
+use Wallee\Sdk\Model\Transaction as TransactionModel;
+use Wallee\Sdk\Model\TransactionState;
+use Wallee\Sdk\Model\CustomersPresence;
+use Wallee\Sdk\Model\AbstractTransactionPending;
+use Wallee\Sdk\Model\TransactionCreate;
+use Wallee\Sdk\Model\TransactionPending;
 
 /**
  * This service provides functions to deal with Wallee transactions.
@@ -26,7 +34,15 @@ use Wallee\Sdk\Service\TransactionPaymentPageService;
  */
 class Transaction extends AbstractService {
 
-	public function getPaymentMethods(array $order_info){
+	/**
+	 * Gets the available payment methods for the given order.
+	 *
+	 * @param array<string, mixed> $order_info The order information
+	 * @return array<\Wallee\Sdk\Model\PaymentMethodConfiguration>
+	 * @throws \Wallee\Sdk\ApiException If the API call fails
+	 * @throws \RuntimeException If the payment methods cannot be retrieved
+	 */
+	public function getPaymentMethods(array $order_info): array {
 		$sessionId = \WalleeHelper::instance($this->registry)->getCustomerSessionIdentifier();
 		if (!$sessionId || !array_key_exists($sessionId, self::$possible_payment_method_cache)) {
 			$transaction = $this->update($order_info, false);
@@ -42,47 +58,77 @@ class Transaction extends AbstractService {
 				self::$possible_payment_method_cache[$sessionId] = $payment_methods;
 			}
 			catch (\Exception $e) {
-				self::$possible_payment_method_cache[$sessionId] = array();
+				self::$possible_payment_method_cache[$sessionId] = [];
 				throw $e;
 			}
 		}
 		return self::$possible_payment_method_cache[$sessionId];
 	}
 
-	public function getJavascriptUrl(){
-		$transaction = $this->getTransaction(array(), false, array(
-			\Wallee\Sdk\Model\TransactionState::PENDING 
-		));
-		$this->persist($transaction, array());
+	/**
+	 * Gets the JavaScript URL for the transaction iframe.
+	 *
+	 * @return string The JavaScript URL
+	 * @throws \Wallee\Sdk\ApiException If the API call fails
+	 * @throws \RuntimeException If the URL cannot be retrieved
+	 */
+	public function getJavascriptUrl(): string {
+		$transaction = $this->getTransaction([], false, [
+			TransactionState::PENDING 
+		]);
+		$this->persist($transaction, []);
 		return $this->getIframeService()->javascriptUrl($transaction->getLinkedSpaceId(), $transaction->getId());
 	}
 
-	public function getPaymentPageUrl(\Wallee\Sdk\Model\Transaction $transaction, $paymentCode){
+	/**
+	 * Gets the payment page URL for the given transaction and payment code.
+	 *
+	 * @param TransactionModel $transaction The transaction
+	 * @param string $paymentCode The payment code
+	 * @return string The payment page URL
+	 * @throws \RuntimeException If the URL cannot be retrieved
+	 */
+	public function getPaymentPageUrl(TransactionModel $transaction, string $paymentCode): string {
 		$paymentMethodId = \WalleeHelper::extractPaymentMethodId($paymentCode);
 		return $this->getPaymentPageService()->paymentPageUrl($transaction->getLinkedSpaceId(), $transaction->getId()) .
 				 '&paymentMethodConfigurationId=' . $paymentMethodId;
 	}
 	
-	protected function getAllowedPaymentMethodConfigurations(array $order_info) {
+	/**
+	 * Gets the allowed payment method configurations for the given order.
+	 *
+	 * @param array<string, mixed> $order_info The order information
+	 * @return array<int>|null The allowed payment method configuration IDs or null if not restricted
+	 */
+	protected function getAllowedPaymentMethodConfigurations(array $order_info): ?array {
 		if(isset($order_info['payment_method']) && isset($order_info['payment_method']['code'])){
-			return array(\WalleeHelper::extractPaymentMethodId($order_info['payment_method']['code']));
+			return [\WalleeHelper::extractPaymentMethodId($order_info['payment_method']['code'])];
 		}
 		return null;
 	}
 
-	public function update(array $order_info, $confirm = false){
+	/**
+	 * Updates an existing transaction or creates a new one.
+	 *
+	 * @param array<string, mixed> $order_info The order information
+	 * @param bool $confirm Whether to confirm the transaction
+	 * @return TransactionModel The updated or created transaction
+	 * @throws \Wallee\Sdk\ApiException If the API call fails
+	 * @throws \RuntimeException If the transaction cannot be updated or created
+	 */
+	public function update(array $order_info, bool $confirm = false): TransactionModel {
 		$last = null;
 		try {
 			for ($i = 0; $i < 5; $i++) {
 				$transaction = $this->getTransaction($order_info, false);
-				if ($transaction->getState() !== \Wallee\Sdk\Model\TransactionState::PENDING) {
+				if ($transaction->getState() !== TransactionState::PENDING) {
 					if ($confirm) {
-						throw new \Exception('No pending transaction available to be confirmed.');
+						throw new \RuntimeException('No pending transaction available to be confirmed.');
 					}
 					return $this->create($order_info);
 				}
 				
-				$pending_transaction = new \Wallee\Sdk\Model\TransactionPending();
+				$pending_transaction = new TransactionPending();
 				$pending_transaction->setId($transaction->getId());
 				$pending_transaction->setVersion($transaction->getVersion());
 				$this->assembleTransaction($pending_transaction, $order_info);
@@ -103,7 +149,7 @@ class Transaction extends AbstractService {
 		}
 		catch (\Wallee\Sdk\ApiException $e) {
 			$last = $e;
-			if ($e->getCode() != 409) {
+			if ($e->getCode() !== 409) {
 				throw $e;
 			}
 		}
@@ -114,16 +160,17 @@ class Transaction extends AbstractService {
 	/**
 	 * Wait for the order to reach a given state.
 	 *
-	 * @param $order_id
-	 * @param array $states
-	 * @param int $maxWaitTime
-	 * @return boolean
+	 * @param int $order_id The order ID
+	 * @param array<string> $states The states to wait for
+	 * @param int $maxWaitTime Maximum wait time in seconds
+	 * @return bool True if the order reached one of the states, false if timeout
+	 * @throws \RuntimeException If the order information cannot be loaded
 	 */
-	public function waitForStates($order_id, array $states, $maxWaitTime = 10){
+	public function waitForStates(int $order_id, array $states, int $maxWaitTime = 10): bool {
 		$startTime = microtime(true);
 		while (true) {
 			$transactionInfo = \Wallee\Entity\TransactionInfo::loadByOrderId($this->registry, $order_id);
-			if (in_array($transactionInfo->getState(), $states)) {
+			if (in_array($transactionInfo->getState(), $states, true)) {
 				return true;
 			}
 			
@@ -137,10 +184,13 @@ class Transaction extends AbstractService {
 	/**
 	 * Reads or creates a new transaction.
 	 *
-	 * @param array $order_info
-	 * @return \Wallee\Sdk\Model\Transaction
+	 * @param array<string, mixed> $order_info The order information
+	 * @param bool $cache Whether to use cached transaction
+	 * @param array<string> $allowed_states The allowed transaction states
+	 * @return TransactionModel The transaction
+	 * @throws \RuntimeException If the transaction cannot be loaded or created
 	 */
-	public function getTransaction($order_info = array(), $cache = true, $allowed_states = array()){
+	public function getTransaction(array $order_info = [], bool $cache = true, array $allowed_states = []): TransactionModel {
 		$sessionId = \WalleeHelper::instance($this->registry)->getCustomerSessionIdentifier();
 		
 		if ($sessionId && isset(self::$transaction_cache[$sessionId]) && $cache) {
@@ -153,19 +203,19 @@ class Transaction extends AbstractService {
 		if ($this->hasTransactionInSession()) {
 			self::$transaction_cache[$sessionId] = $this->getTransactionService()->read($this->getSessionSpaceId(), $this->getSessionTransactionId());
 			// check if the status is expected
-			$create = empty($allowed_states) ? false : !in_array(self::$transaction_cache[$sessionId]->getState(), $allowed_states);
+			$create = empty($allowed_states) ? false : !in_array(self::$transaction_cache[$sessionId]->getState(), $allowed_states, true);
 		}
 		
-		// attempt to load via order id (existing transaction_info
+		// attempt to load via order id (existing transaction_info)
 		if (isset($order_info['order_id']) && $create) {
 			$transaction_info = \Wallee\Entity\TransactionInfo::loadByOrderId($this->registry, $order_info['order_id']);
 			if ($transaction_info->getId() && $transaction_info->getState() === 'PENDING') {
 				self::$transaction_cache[$sessionId] = $this->getTransactionService()->read($transaction_info->getSpaceId(),
 						$transaction_info->getTransactionId());
-				$create = empty($allowed_states) ? false : !in_array(self::$transaction_cache[$sessionId]->getState(), $allowed_states);
+				$create = empty($allowed_states) ? false : !in_array(self::$transaction_cache[$sessionId]->getState(), $allowed_states, true);
 			}
 			if ($create) {
-				throw new Exception("Order ID was already used."); // Todo test
+				throw new \RuntimeException('Order ID was already used.');
 			}
 		}
 		
@@ -177,7 +227,13 @@ class Transaction extends AbstractService {
 		return self::$transaction_cache[$sessionId];
 	}
 
-	private function persist($transaction, array $order_info){
+	/**
+	 * Persists the transaction data.
+	 *
+	 * @param TransactionModel $transaction The transaction to persist
+	 * @param array<string, mixed> $order_info The order information
+	 */
+	private function persist(TransactionModel $transaction, array $order_info): void {
 		if (isset($order_info['order_id'])) {
 			$this->updateTransactionInfo($transaction, $order_info['order_id']);
 		}
@@ -185,10 +241,17 @@ class Transaction extends AbstractService {
 		$this->storeShipping($transaction);
 	}
 
-	private function create(array $order_info){
-		$create_transaction = new \Wallee\Sdk\Model\TransactionCreate();
+	/**
+	 * Creates a new transaction.
+	 *
+	 * @param array<string, mixed> $order_info The order information
+	 * @return TransactionModel The created transaction
+	 * @throws \RuntimeException If the transaction cannot be created
+	 */
+	private function create(array $order_info): TransactionModel {
+		$create_transaction = new TransactionCreate();
 		
-		$create_transaction->setCustomersPresence(\Wallee\Sdk\Model\CustomersPresence::VIRTUAL_PRESENT);
+		$create_transaction->setCustomersPresence(CustomersPresence::VIRTUAL_PRESENT);
 		if (isset($this->registry->get('request')->cookie['wallee_device_id'])) {
 			$create_transaction->setDeviceSessionIdentifier($this->registry->get('request')->cookie['wallee_device_id']);
 		}
@@ -204,7 +267,14 @@ class Transaction extends AbstractService {
 		return $transaction;
 	}
 
-	private function assembleTransaction(\Wallee\Sdk\Model\AbstractTransactionPending $transaction, array $order_info){
+	/**
+	 * Assembles the transaction data.
+	 *
+	 * @param AbstractTransactionPending $transaction The transaction to assemble
+	 * @param array<string, mixed> $order_info The order information
+	 * @throws \RuntimeException If required data is missing
+	 */
+	private function assembleTransaction(AbstractTransactionPending $transaction, array $order_info): void {
 		$order_id = isset($order_info['order_id']) ? $order_info['order_id'] : null;
 		$data = $this->registry->get('session')->data;
 		
@@ -212,7 +282,7 @@ class Transaction extends AbstractService {
 			$transaction->setCurrency($data['currency']);
 		}
 		else {
-			throw new \Exception('Session currency not set.');
+			throw new \RuntimeException('Session currency not set.');
 		}
 		
 		$transaction->setBillingAddress(
@@ -250,51 +320,43 @@ class Transaction extends AbstractService {
 	/**
 	 * Cache for cart transactions.
 	 *
-	 * @var \Wallee\Sdk\Model\Transaction[]
+	 * @var array<string, TransactionModel>
 	 */
-	private static $transaction_cache = array();
+	private static array $transaction_cache = [];
 	
 	/**
 	 * Cache for possible payment methods by cart.
 	 *
-	 * @var \Wallee\Sdk\Model\PaymentMethodConfiguration[]
+	 * @var array<string, array<\Wallee\Sdk\Model\PaymentMethodConfiguration>>
 	 */
-	private static $possible_payment_method_cache = array();
+	private static array $possible_payment_method_cache = [];
 	
 	/**
 	 * The transaction API service.
-	 *
-	 * @var \Wallee\Sdk\Service\TransactionService
 	 */
-	private $transaction_service;
+	private ?TransactionService $transaction_service = null;
 	
 	/**
 	 * The charge attempt API service.
-	 *
-	 * @var \Wallee\Sdk\Service\ChargeAttemptService
 	 */
-	private $charge_attempt_service;
+	private ?ChargeAttemptService $charge_attempt_service = null;
 	
 	/**
 	 * The iframe API service, to retrieve JS url
-	 *
-	 * @var \Wallee\Sdk\Service\TransactionIframeService
 	 */
-	private $transaction_iframe_service;
+	private ?TransactionIframeService $transaction_iframe_service = null;
 	
 	/**
 	 * The payment page API service, tro retrieve pp URL
-	 * 
-	 * @var \Wallee\Sdk\Service\TransactionPaymentPageService
 	 */
-	private $transaction_payment_page_service;
+	private ?TransactionPaymentPageService $transaction_payment_page_service = null;
 
 	/**
 	 * Returns the transaction API service.
 	 *
-	 * @return \Wallee\Sdk\Service\TransactionService
+	 * @return TransactionService
 	 */
-	private function getTransactionService(){
+	private function getTransactionService(): TransactionService {
 		if ($this->transaction_service === null) {
 			$this->transaction_service = new TransactionService(\WalleeHelper::instance($this->registry)->getApiClient());
 		}
@@ -304,9 +366,9 @@ class Transaction extends AbstractService {
 	/**
 	 * Returns the charge attempt API service.
 	 *
-	 * @return \Wallee\Sdk\Service\ChargeAttemptService
+	 * @return ChargeAttemptService
 	 */
-	private function getChargeAttemptService(){
+	private function getChargeAttemptService(): ChargeAttemptService {
 		if ($this->charge_attempt_service === null) {
 			$this->charge_attempt_service = new ChargeAttemptService(\WalleeHelper::instance($this->registry)->getApiClient());
 		}
@@ -314,11 +376,11 @@ class Transaction extends AbstractService {
 	}
 	
 	/**
-	 * Returns the transaction API service.
+	 * Returns the transaction iframe API service.
 	 *
-	 * @return \Wallee\Sdk\Service\TransactionIframeService
+	 * @return TransactionIframeService
 	 */
-	private function getIframeService(){
+	private function getIframeService(): TransactionIframeService {
 		if ($this->transaction_iframe_service === null) {
 			$this->transaction_iframe_service = new TransactionIframeService(\WalleeHelper::instance($this->registry)->getApiClient());
 		}
@@ -326,11 +388,11 @@ class Transaction extends AbstractService {
 	}
 	
 	/**
-	 * Returns the transaction API service.
+	 * Returns the transaction payment page API service.
 	 *
-	 * @return \Wallee\Sdk\Service\TransactionPaymentPageService
+	 * @return TransactionPaymentPageService
 	 */
-	private function getPaymentPageService(){
+	private function getPaymentPageService(): TransactionPaymentPageService {
 		if ($this->transaction_payment_page_service === null) {
 			$this->transaction_payment_page_service = new TransactionPaymentPageService(\WalleeHelper::instance($this->registry)->getApiClient());
 		}
@@ -340,10 +402,11 @@ class Transaction extends AbstractService {
 	/**
 	 * Updates the line items to be in line with the current order.
 	 *
-	 * @param string $order_id
-	 * @return \Wallee\Sdk\Model\TransactionLineItemVersion
+	 * @param int $order_id The order ID
+	 * @return \Wallee\Sdk\Model\TransactionLineItemVersion The updated line items
+	 * @throws \RuntimeException If the line items cannot be updated
 	 */
-	public function updateLineItemsFromOrder($order_id){
+	public function updateLineItemsFromOrder(int $order_id): \Wallee\Sdk\Model\TransactionLineItemVersion {
 		$order_info = \WalleeHelper::instance($this->registry)->getOrder($order_id);
 		$transaction_info = \Wallee\Entity\TransactionInfo::loadByOrderId($this->registry, $order_id);
 		
@@ -548,14 +611,22 @@ class Transaction extends AbstractService {
 		return $value;
 	}
 
-	private function hasTransactionInSession(){
+	/**
+	 * Checks if a transaction is stored in the session.
+	 *
+	 * @return bool True if a transaction is stored in the session
+	 */
+	private function hasTransactionInSession(): bool {
 		$data = $this->registry->get('session')->data;
 		return isset($data['wallee_transaction_id']) && isset($data['wallee_space_id']) &&
 				 $data['wallee_space_id'] == $this->registry->get('config')->get('wallee_space_id') &&
 				 \WalleeHelper::instance($this->registry)->compareStoredCustomerSessionIdentifier();
 	}
 
-	public function clearTransactionInSession(){
+	/**
+	 * Clears the transaction data from the session.
+	 */
+	public function clearTransactionInSession(): void {
 		if ($this->hasTransactionInSession()) {
 			unset($this->registry->get('session')->data['wallee_transaction_id']);
 			unset($this->registry->get('session')->data['wallee_customer']);
@@ -563,21 +634,43 @@ class Transaction extends AbstractService {
 		}
 	}
 
-	private function getSessionTransactionId(){
-		return $this->registry->get('session')->data['wallee_transaction_id'];
+	/**
+	 * Gets the transaction ID from the session.
+	 *
+	 * @return int The transaction ID
+	 * @throws \RuntimeException If no transaction ID is stored in the session
+	 */
+	private function getSessionTransactionId(): int {
+		return (int)$this->registry->get('session')->data['wallee_transaction_id'];
 	}
 
-	private function getSessionSpaceId(){
-		return $this->registry->get('session')->data['wallee_space_id'];
+	/**
+	 * Gets the space ID from the session.
+	 *
+	 * @return int The space ID
+	 * @throws \RuntimeException If no space ID is stored in the session
+	 */
+	private function getSessionSpaceId(): int {
+		return (int)$this->registry->get('session')->data['wallee_space_id'];
 	}
 
-	private function storeTransactionIdsInSession(\Wallee\Sdk\Model\Transaction $transaction){
+	/**
+	 * Stores the transaction IDs in the session.
+	 *
+	 * @param TransactionModel $transaction The transaction
+	 */
+	private function storeTransactionIdsInSession(TransactionModel $transaction): void {
 		$this->registry->get('session')->data['wallee_customer'] = \WalleeHelper::instance($this->registry)->getCustomerSessionIdentifier();
 		$this->registry->get('session')->data['wallee_transaction_id'] = $transaction->getId();
 		$this->registry->get('session')->data['wallee_space_id'] = $transaction->getLinkedSpaceId();
 	}
 
-	private function storeShipping(\Wallee\Sdk\Model\Transaction $transaction){
+	/**
+	 * Stores the shipping information.
+	 *
+	 * @param TransactionModel $transaction The transaction
+	 */
+	private function storeShipping(TransactionModel $transaction): void {
 		$session = $this->registry->get('session')->data;
 		if (isset($session['shipping_method']) && isset($session['shipping_method']['cost']) && !empty($session['shipping_method']['cost'])) {
 			$shipping_info = \Wallee\Entity\ShippingInfo::loadByTransaction($this->registry, $transaction->getLinkedSpaceId(),
@@ -590,11 +683,22 @@ class Transaction extends AbstractService {
 		}
 	}
 	
-	private function hasSaveableCoupon() {
+	/**
+	 * Checks if there is a saveable coupon.
+	 *
+	 * @return bool True if there is a saveable coupon
+	 */
+	private function hasSaveableCoupon(): bool {
 		return isset($this->registry->get('session')->data['coupon']) && isset($this->registry->get('session')->data['order_id']);
 	}
 	
-	private function getCoupon() {
+	/**
+	 * Gets the coupon from the session.
+	 *
+	 * @return string The coupon code
+	 * @throws \RuntimeException If no coupon is stored in the session
+	 */
+	private function getCoupon(): string {
 		return $this->registry->get('session')->data['coupon'];
 	}
 }
