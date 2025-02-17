@@ -141,4 +141,4 @@ und dieses Projekt folgt [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Einführung von PHP 8.2 Kompatibilität
 - Verbesserung der Code-Qualität und Wartbarkeit
 - Optimierung der Performanz durch bessere Typisierung
-- Vereinheitlichung des Coding-Stils 
+- Vereinheitlichung des Coding-Stils  
