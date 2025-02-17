@@ -115,10 +115,19 @@ und dieses Projekt folgt [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   - Verbesserte Property-Deklarationen mit Nullability
   - Optimierte Methodensignaturen mit strikter Typisierung
   - Verbesserte Fehlerbehandlung mit spezifischen Ausnahmen
-  - Aufteilung der Gutschein-Verarbeitung in separate Methoden
-  - Einführung von Validierungsmethoden für Gutscheine
-  - Verbesserte Dokumentation mit präzisen PHPDoc-Kommentaren
-  - Optimierte Berechnung von Rabatten und Steuern
+  - Aufteilung der Gutschein-Verarbeitung in separate Methoden:
+    - Neue Methode `getCouponProducts` für Produkt-Validierung
+    - Neue Methode `getCouponCategories` für Kategorie-Validierung
+  - Verbesserung der SQL-Sicherheit:
+    - Verwendung von `sprintf` für Query-Formatierung
+    - Korrekte Escaping von Benutzereingaben
+    - Konsistente Verwendung von Tabellenprefix
+  - Optimierung der Coupon-Validierung:
+    - Strikte Typprüfungen für Coupon-Parameter
+    - Verbesserte Fehlerbehandlung bei ungültigen Coupons
+    - Effizientere Verarbeitung von Produkt- und Kategorie-Einschränkungen
+  - Modernisierung der Array-Syntax von `array()` zu `[]`
+  - Verbesserte PHPDoc-Dokumentation für alle Methoden
   - Typsichere Implementierung aller Methoden
   - Verbesserte Code-Organisation und Lesbarkeit
 
