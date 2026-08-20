@@ -238,13 +238,42 @@ class Transaction extends AbstractService {
 			$transaction->setShippingMethod($this->fixLength($data['shipping_method']['title'], 200));
 		}
 		
-		$transaction->setLineItems(LineItem::instance($this->registry)->getItemsFromSession());
+		$transaction->setLineItems($this->getLineItems($order_info));
 		$transaction->setSuccessUrl(\WalleeHelper::instance($this->registry)->getSuccessUrl());
 
 		if ($order_id) {
 			$transaction->setMerchantReference($order_id);
 			$transaction->setFailedUrl(\WalleeHelper::instance($this->registry)->getFailedUrl($order_id));
 		}
+	}
+
+	/**
+	 * Uses the persisted order as the source of truth once an order exists.
+	 *
+	 * @param array $order_info
+	 * @return \Wallee\Sdk\Model\LineItemCreate[]
+	 */
+	protected function getLineItems(array $order_info){
+		if (!empty($order_info['order_id'])) {
+			$order = $this->getOrderForLineItems($order_info['order_id']);
+			if (!empty($order)) {
+				return $this->getLineItemsFromOrder($order);
+			}
+		}
+
+		return $this->getLineItemsFromSession();
+	}
+
+	protected function getOrderForLineItems($order_id){
+		return \WalleeHelper::instance($this->registry)->getOrder($order_id);
+	}
+
+	protected function getLineItemsFromOrder(array $order_info){
+		return LineItem::instance($this->registry)->getItemsFromOrder($order_info);
+	}
+
+	protected function getLineItemsFromSession(){
+		return LineItem::instance($this->registry)->getItemsFromSession();
 	}
 	
 	/**
