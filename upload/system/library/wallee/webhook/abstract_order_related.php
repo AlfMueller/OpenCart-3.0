@@ -27,8 +27,16 @@ abstract class AbstractOrderRelated extends AbstractWebhook {
 		}
 		
 		$entity = $this->loadEntity($request);
-		\WalleeHelper::instance($this->registry)->dbTransactionStart();
+		$lock_acquired = false;
+		$transaction_started = false;
+		$lock_space_id = $request->getSpaceId();
+		$lock_transaction_id = $this->getTransactionId($entity);
 		try {
+			\WalleeHelper::instance($this->registry)->dbWebhookLock($lock_space_id, $lock_transaction_id);
+			$lock_acquired = true;
+			\WalleeHelper::instance($this->registry)->dbTransactionStart();
+			$transaction_started = true;
+
 			$order_id = $this->getOrderId($entity);
 			$this->registry->get('load')->model('checkout/order');
 			$order_info = $this->registry->get('model_checkout_order')->getOrder($order_id);
@@ -36,17 +44,26 @@ abstract class AbstractOrderRelated extends AbstractWebhook {
 				$transaction_info = \Wallee\Entity\TransactionInfo::loadByOrderId($this->registry, $order_id);
 				if ($transaction_info->getTransactionId() !== $this->getTransactionId($entity)) {
 					\WalleeHelper::instance($this->registry)->dbTransactionCommit();
+					$transaction_started = false;
 					return;
 				}
-				\WalleeHelper::instance($this->registry)->dbTransactionLock($transaction_info->getSpaceId(), $transaction_info->getTransactionId());
+				\WalleeHelper::instance($this->registry)->dbTransactionLock($lock_space_id, $lock_transaction_id);
 				$this->processOrderRelatedInner($order_info, $entity);
 			}
 			
 			\WalleeHelper::instance($this->registry)->dbTransactionCommit();
+			$transaction_started = false;
 		}
 		catch (\Exception $e) {
-			\WalleeHelper::instance($this->registry)->dbTransactionRollback();
+			if ($transaction_started) {
+				\WalleeHelper::instance($this->registry)->dbTransactionRollback();
+			}
 			throw $e;
+		}
+		finally {
+			if ($lock_acquired) {
+				\WalleeHelper::instance($this->registry)->dbWebhookUnlock($lock_space_id, $lock_transaction_id);
+			}
 		}
 	}
 

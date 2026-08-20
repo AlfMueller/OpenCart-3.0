@@ -390,6 +390,39 @@ class WalleeHelper {
 		$db->query("UPDATE $table SET locked_at = '$locked_at' WHERE transaction_id = '$transaction_id' AND space_id = '$space_id'");
 	}
 
+	/**
+	 * Acquire a connection-level lock before starting a webhook transaction.
+	 *
+	 * @param int $space_id
+	 * @param int $transaction_id
+	 */
+	public function dbWebhookLock($space_id, $transaction_id){
+		$db = $this->registry->get('db');
+		$lock_name = $db->escape($this->getDbTransactionLockName($space_id, $transaction_id));
+
+		$result = $db->query("SELECT GET_LOCK('$lock_name', 30) AS acquired");
+		if (!$result->num_rows || (int) $result->row['acquired'] !== 1) {
+			throw new \Exception("Could not acquire Wallee webhook lock for transaction $transaction_id in space $space_id.");
+		}
+	}
+
+	/**
+	 * Release the connection-level lock for a Wallee transaction.
+	 *
+	 * @param int $space_id
+	 * @param int $transaction_id
+	 */
+	public function dbWebhookUnlock($space_id, $transaction_id){
+		$db = $this->registry->get('db');
+		$lock_name = $db->escape($this->getDbTransactionLockName($space_id, $transaction_id));
+
+		$db->query("SELECT RELEASE_LOCK('$lock_name')");
+	}
+
+	private function getDbTransactionLockName($space_id, $transaction_id){
+		return 'wallee_webhook_' . sha1((string) $space_id . ':' . (string) $transaction_id);
+	}
+
 	public function translate($strings, $language = null){
 		$language = $this->getCleanLanguageCode($language);
 		if (isset($strings[$language])) {
@@ -544,13 +577,14 @@ class WalleeHelper {
 			$this->log('Called addOrderHistory from admin context - unsupported.', self::LOG_ERROR);
 			throw new Exception("addOrderHistory from admin not supported"); // should never occur. always via webhook
 		}
-		if (!ctype_digit($status)) {
+		if (!is_int($status) && !(is_string($status) && ctype_digit($status))) {
 			$status = $this->registry->get('config')->get($status);
 		}
+		$status = (int) $status;
 		$this->registry->get('load')->model('checkout/order');
 		$model = $this->registry->get('model_checkout_order');
 		$order = $model->getOrder($order_id);
-		if ($order['order_status_id'] !== $status || $force) {
+		if ((int) $order['order_status_id'] !== $status || $force) {
 			$model->addOrderHistory($order_id, $status, $message, $notify);
 		}
 		else {

@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Serialize concurrent callbacks per Wallee transaction and compare normalized
+  OpenCart status IDs to prevent duplicate order history entries and customer
+  emails (upstream issue #4).
 - Align fixed and percentage coupon discounts with OpenCart's proportional,
   tax-aware calculation so Wallee payment methods remain available after a
   discount code is applied (upstream issue #5).

@@ -20,7 +20,8 @@
         "test": [
             "@php tests/WebhookSynchronizationTest.php",
             "@php tests/TransactionLineItemsTest.php",
-            "@php tests/CouponDiscountTest.php"
+            "@php tests/CouponDiscountTest.php",
+            "@php tests/WebhookIdempotencyTest.php"
         ],
         "check": [
             "@lint",
