@@ -35,7 +35,7 @@ class ControllerExtensionWalleeCron extends Controller {
 		}
 		catch (Exception $e) {
 			// 1062 is mysql duplicate constraint error. This is expected and doesn't need to be logged.
-			if (strpos($e->getMessage(),'1062',) === false && strpos($e->getMessage(),'constraint_key') === false) {
+			if (!$this->isDuplicateConstraintError($e->getMessage())) {
 				\WalleeHelper::instance($this->registry)->log('Updating cron failed: ' . $e->getMessage(), \WalleeHelper::LOG_ERROR);
 			}
 			\WalleeHelper::instance($this->registry)->dbTransactionRollback();
@@ -88,6 +88,10 @@ class ControllerExtensionWalleeCron extends Controller {
 			}
 		}
 		return $errors;
+	}
+
+	protected function isDuplicateConstraintError($message){
+		return strpos($message, '1062') !== false && strpos($message, 'constraint_key') !== false;
 	}
 
 	private function endRequestPrematurely(){

@@ -21,7 +21,8 @@
             "@php tests/WebhookSynchronizationTest.php",
             "@php tests/TransactionLineItemsTest.php",
             "@php tests/CouponDiscountTest.php",
-            "@php tests/WebhookIdempotencyTest.php"
+            "@php tests/WebhookIdempotencyTest.php",
+            "@php tests/CronErrorFilterTest.php"
         ],
         "check": [
             "@lint",

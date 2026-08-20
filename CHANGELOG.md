@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Suppress only the expected MySQL 1062 duplicate cron constraint error while
+  continuing to log unrelated cron failures (upstream issue #6).
 - Serialize concurrent callbacks per Wallee transaction and compare normalized
   OpenCart status IDs to prevent duplicate order history entries and customer
   emails (upstream issue #4).
