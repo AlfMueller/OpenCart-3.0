@@ -390,16 +390,7 @@ class LineItem extends AbstractService {
 		$product['tax_class_id'] = $this->getTaxClassByProductId($product['product_id']);
 
 		if ($this->coupon && (!$this->coupon['product'] || in_array($product['product_id'], $this->coupon['product']))) {
-			if ($this->coupon['type'] == 'F') {
-				if(empty($this->coupon['product'])) {
-					$discount = $this->coupon['discount'] * ($product['total'] / $this->sub_total);
-				}else {
-					$discount = $this->coupon['discount'] / count($this->coupon['product']);
-				}
-			}
-			elseif ($this->coupon['type'] == 'P') {
-				$discount = $product['total'] / 100 * $this->coupon['discount'];
-			}
+			$discount = $this->calculateCouponDiscount($product);
 			$this->coupon_total -= $discount;
 			$line_item->setAttributes(
 					array(
@@ -427,6 +418,62 @@ class LineItem extends AbstractService {
 		$line_item->setAmountIncludingTax(\WalleeHelper::instance($this->registry)->formatAmount($amount_excluding_tax + $tax_amount));
 
 		return $this->cleanLineItem($line_item);
+	}
+
+	/**
+	 * Calculates the tax-inclusive coupon discount for a product.
+	 *
+	 * The OpenCart coupon total reduces both the product subtotal and its
+	 * percentage-based taxes. Wallee therefore needs the tax-inclusive value
+	 * on the separate discount line item to keep the transaction total equal to
+	 * the OpenCart order total.
+	 *
+	 * @param array $product
+	 * @return float
+	 */
+	protected function calculateCouponDiscount(array $product){
+		$discount = 0;
+
+		if ($this->coupon['type'] == 'F') {
+			$coupon_sub_total = $this->getCouponSubTotal();
+			if ($coupon_sub_total > 0) {
+				$coupon_discount = min((float) $this->coupon['discount'], $coupon_sub_total);
+				$discount = $coupon_discount * ((float) $product['total'] / $coupon_sub_total);
+			}
+		}
+		elseif ($this->coupon['type'] == 'P') {
+			$discount = (float) $product['total'] / 100 * (float) $this->coupon['discount'];
+		}
+
+		$discount = round($discount, 4);
+		$tax_rates = $this->tax->getRates($discount, $product['tax_class_id']);
+		foreach ($tax_rates as $rate) {
+			if ($rate['type'] == 'P') {
+				$discount += $rate['amount'];
+			}
+		}
+
+		return round($discount, 4);
+	}
+
+	/**
+	 * Returns the subtotal to which the current coupon applies.
+	 *
+	 * @return float
+	 */
+	protected function getCouponSubTotal(){
+		if (empty($this->coupon['product'])) {
+			return (float) $this->sub_total;
+		}
+
+		$sub_total = 0;
+		foreach ($this->products as $product) {
+			if (in_array($product['product_id'], $this->coupon['product'])) {
+				$sub_total += $product['total'];
+			}
+		}
+
+		return (float) $sub_total;
 	}
 
 	private function createUniqueIdFromProduct($product){

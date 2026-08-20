@@ -19,7 +19,8 @@
         "compatibility": "phpcs --standard=PHPCompatibility --runtime-set testVersion 8.2-8.4 --extensions=php upload",
         "test": [
             "@php tests/WebhookSynchronizationTest.php",
-            "@php tests/TransactionLineItemsTest.php"
+            "@php tests/TransactionLineItemsTest.php",
+            "@php tests/CouponDiscountTest.php"
         ],
         "check": [
             "@lint",

@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Align fixed and percentage coupon discounts with OpenCart's proportional,
+  tax-aware calculation so Wallee payment methods remain available after a
+  discount code is applied (upstream issue #5).
 - Build confirmation line items from the persisted OpenCart order when an
   order ID is available, preventing authorization amount mismatches caused by
   stale session carts (upstream issue #9).
