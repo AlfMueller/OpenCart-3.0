@@ -22,7 +22,8 @@
             "@php tests/TransactionLineItemsTest.php",
             "@php tests/CouponDiscountTest.php",
             "@php tests/WebhookIdempotencyTest.php",
-            "@php tests/CronErrorFilterTest.php"
+            "@php tests/CronErrorFilterTest.php",
+            "@php tests/OcmodModificationTest.php"
         ],
         "check": [
             "@lint",

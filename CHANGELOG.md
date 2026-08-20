@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Avoid wrapping already modified `include` and `require` paths in a second
+  `modification()` call in the core OCMOD rules (upstream issue #7).
 - Suppress only the expected MySQL 1062 duplicate cron constraint error while
   continuing to log unrelated cron failures (upstream issue #6).
 - Serialize concurrent callbacks per Wallee transaction and compare normalized

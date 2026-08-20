@@ -62,7 +62,7 @@
 	<file path="system/library/language.php">
 		<operation>
 			<search regex="true"><![CDATA[
-	~(require|include)(_once)?\(([^)]+)~
+	~(require|include)(_once)?\((?!modification\()([^)]+)~
             ]]></search>
 			<add><![CDATA[
 	$1$2(modification($3)
@@ -93,7 +93,7 @@
 	<file path="system/engine/action.php">
 		<operation>
 			<search regex="true"><![CDATA[
-	~(require|include)(_once)?\(([^)]+)~
+	~(require|include)(_once)?\((?!modification\()([^)]+)~
             ]]></search>
 			<add><![CDATA[
 	$1$2(modification($3)
