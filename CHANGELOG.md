@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Keep the OpenCart admin order heading intact by loading dynamic Wallee
+  payment-method titles in an isolated language scope (upstream issue #1).
 - Avoid wrapping already modified `include` and `require` paths in a second
   `modification()` call in the core OCMOD rules (upstream issue #7).
 - Suppress only the expected MySQL 1062 duplicate cron constraint error while

@@ -76,6 +76,28 @@
             ]]></search>
 			<add position="replace"><![CDATA[
 				if (is_file(DIR_CATALOG . 'controller/extension/payment/' . $order_info['payment_code'] . '.php') || strpos($order_info['payment_code'], 'wallee_') === 0) {
+			]]></add>
+		</operation>
+		<operation>
+			<search><![CDATA[
+					$this->load->language('extension/payment/' . $order_info['payment_code']);
+            ]]></search>
+			<add position="replace"><![CDATA[
+					if (strpos($order_info['payment_code'], 'wallee_') === 0) {
+						$this->load->language('extension/payment/' . $order_info['payment_code'], 'wallee_payment');
+					} else {
+						$this->load->language('extension/payment/' . $order_info['payment_code']);
+					}
+            ]]></add>
+		</operation>
+		<operation>
+			<search><![CDATA[
+						'title'   => $this->language->get('heading_title'),
+            ]]></search>
+			<add position="replace"><![CDATA[
+						'title'   => strpos($order_info['payment_code'], 'wallee_') === 0
+							? $this->language->get('wallee_payment')->get('heading_title')
+							: $this->language->get('heading_title'),
             ]]></add>
 		</operation>
 	</file>

@@ -23,7 +23,8 @@
             "@php tests/CouponDiscountTest.php",
             "@php tests/WebhookIdempotencyTest.php",
             "@php tests/CronErrorFilterTest.php",
-            "@php tests/OcmodModificationTest.php"
+            "@php tests/OcmodModificationTest.php",
+            "@php tests/AdminOrderTitleTest.php"
         ],
         "check": [
             "@lint",
