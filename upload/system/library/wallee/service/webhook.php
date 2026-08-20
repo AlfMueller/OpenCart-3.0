@@ -122,6 +122,41 @@ class Webhook extends AbstractService {
 			}
 		}
 	}
+
+	/**
+	 * Synchronizes the webhook URL without removing a working endpoint first.
+	 *
+	 * @param int $space_id
+	 * @param string|null $saved_url
+	 * @param string $generated_url
+	 */
+	public function synchronize($space_id, $saved_url, $generated_url){
+		if ($space_id === null || empty($generated_url)) {
+			return;
+		}
+
+		$saved_url = is_string($saved_url) ? trim($saved_url) : '';
+		if ($saved_url === '' || $saved_url === $generated_url) {
+			$this->install($space_id, $generated_url);
+			return;
+		}
+
+		$generated_webhook_url = $this->getWebhookUrl($space_id, $generated_url);
+		if ($generated_webhook_url !== null) {
+			$this->install($space_id, $generated_url);
+			$this->uninstall($space_id, $saved_url);
+			return;
+		}
+
+		$saved_webhook_url = $this->getWebhookUrl($space_id, $saved_url);
+		if ($saved_webhook_url !== null) {
+			$this->updateWebhookUrl($space_id, $saved_webhook_url, $generated_url);
+			$this->install($space_id, $generated_url);
+			return;
+		}
+
+		$this->install($space_id, $generated_url);
+	}
 	
 	public function uninstall($space_id, $url) {
 		if($space_id !== null && !empty($url)) {
@@ -193,14 +228,34 @@ class Webhook extends AbstractService {
 	 * Creates a webhook url.
 	 *
 	 * @param int $space_id
+	 * @param string $url
 	 * @return \Wallee\Sdk\Model\WebhookUrlCreate
 	 */
-	protected function createWebhookUrl($space_id){
+	protected function createWebhookUrl($space_id, $url){
 		$webhook_url = new \Wallee\Sdk\Model\WebhookUrlCreate();
-		$webhook_url->setUrl($this->getUrl());
+		$webhook_url->setUrl($url);
 		$webhook_url->setState(\Wallee\Sdk\Model\CreationEntityState::ACTIVE);
 		$webhook_url->setName('Opencart');
 		return $this->getWebhookUrlService()->create($space_id, $webhook_url);
+	}
+
+	/**
+	 * Updates a webhook URL in place so its listeners remain attached.
+	 *
+	 * @param int $space_id
+	 * @param \Wallee\Sdk\Model\WebhookUrl $webhook_url
+	 * @param string $url
+	 * @return \Wallee\Sdk\Model\WebhookUrl
+	 */
+	protected function updateWebhookUrl($space_id, \Wallee\Sdk\Model\WebhookUrl $webhook_url, $url){
+		$update = new \Wallee\Sdk\Model\WebhookUrlUpdate();
+		$update->setId($webhook_url->getId());
+		$update->setVersion($webhook_url->getVersion());
+		$update->setName($webhook_url->getName());
+		$update->setState($webhook_url->getState());
+		$update->setUrl($url);
+
+		return $this->getWebhookUrlService()->update($space_id, $update);
 	}
 
 	/**

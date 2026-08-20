@@ -168,7 +168,7 @@ class AbstractShopifySubscriptionProductUpdate implements ModelInterface, ArrayA
      * @param mixed[] $data Associated array of property values
      *                      initializing the model
      */
-    public function __construct(array $data = null)
+    public function __construct(?array $data = null)
     {
         
         $this->container['absolute_price_adjustment'] = isset($data['absolute_price_adjustment']) ? $data['absolute_price_adjustment'] : null;
@@ -646,7 +646,7 @@ class AbstractShopifySubscriptionProductUpdate implements ModelInterface, ArrayA
      *
      * @return boolean
      */
-    public function offsetExists($offset)
+    public function offsetExists($offset): bool
     {
         return isset($this->container[$offset]);
     }
@@ -658,7 +658,7 @@ class AbstractShopifySubscriptionProductUpdate implements ModelInterface, ArrayA
      *
      * @return mixed
      */
-    public function offsetGet($offset)
+    public function offsetGet($offset): mixed
     {
         return isset($this->container[$offset]) ? $this->container[$offset] : null;
     }
@@ -671,7 +671,7 @@ class AbstractShopifySubscriptionProductUpdate implements ModelInterface, ArrayA
      *
      * @return void
      */
-    public function offsetSet($offset, $value)
+    public function offsetSet($offset, $value): void
     {
         if (is_null($offset)) {
             $this->container[] = $value;
@@ -687,7 +687,7 @@ class AbstractShopifySubscriptionProductUpdate implements ModelInterface, ArrayA
      *
      * @return void
      */
-    public function offsetUnset($offset)
+    public function offsetUnset($offset): void
     {
         unset($this->container[$offset]);
     }

@@ -125,7 +125,7 @@ abstract class AbstractJob extends AbstractEntity {
 	 * @return array|\Wallee\Entity\AbstractJob[]
 	 */
 	public static function loadNotSent(\Registry $registry, $period = 'PT10M'){
-		if (get_called_class() == get_class()) {
+		if (get_called_class() === self::class) {
 			return array_merge(CompletionJob::loadNotSent($registry, $period), VoidJob::loadNotSent($registry, $period),
 					RefundJob::loadNotSent($registry, $period));
 		}
@@ -134,7 +134,7 @@ abstract class AbstractJob extends AbstractEntity {
 			$time->sub(new \DateInterval($period));
 			$table = DB_PREFIX . static::getTableName();
 			$created = self::STATE_CREATED;
-			$timestamp = $time->format('Y-m-dd h:i:s');
+			$timestamp = $time->format('Y-m-d H:i:s');
 			
 			$query = "SELECT * FROM $table WHERE STATE='$created' AND updated_at<'$timestamp';";
 			$db_result = self::query($query, $registry->get('db'));
@@ -159,7 +159,7 @@ abstract class AbstractJob extends AbstractEntity {
 	public static function hasNotSent(\Registry $registry, $period = 'PT10M'){
 		$time = new \DateTime();
 		$time->sub(new \DateInterval($period));
-		$timestamp = $time->format('Y-m-dd h:i:s');
+		$timestamp = $time->format('Y-m-d H:i:s');
 		$completions = DB_PREFIX . CompletionJob::getTableName();
 		$voids = DB_PREFIX . VoidJob::getTableName();
 		$refunds = DB_PREFIX . RefundJob::getTableName();

@@ -161,7 +161,7 @@ class WalleeHelper {
 			$address = \WalleeHelper::mergeArray($address, $order_info[$key . '_address']);
 		}
 		if (isset($order_info[$key . '_address_id'])) {
-			$address = \WalleeHelper::mergeArray($address, $address_model->getAddress($$order_info[$key . '_address_id']));
+			$address = \WalleeHelper::mergeArray($address, $address_model->getAddress($order_info[$key . '_address_id']));
 		}
 		if (empty($address) && $key != 'payment') {
 			$address = $this->getAddress('payment', $order_info);
@@ -184,26 +184,17 @@ class WalleeHelper {
 	}
 
 	public function refreshWebhook(){
-		$db = $this->registry->get('db');
-		$config = DB_PREFIX . 'setting';
-
 		$generated = $this->getWebhookUrl();
 		$saved = $this->registry->get('config')->get('wallee_notification_url');
-		if ($generated == $saved) {
-			return;
+		if ($generated === $saved) {
+			return $generated;
 		}
-		$space_id = $this->registry->get('config')->get('wallee_space_id');
-		\Wallee\Service\Webhook::instance($this->registry)->uninstall($space_id, $saved);
-		\Wallee\Service\Webhook::instance($this->registry)->install($space_id, $generated);
 
-		$store_id = $this->registry->get('config')->get('config_store_id');
-		if ($store_id === null) {
-			$store_id = 0;
-		}
-		$store_id = $db->escape($store_id);
-		$query = "UPDATE `$config` SET `value`='$generated' WHERE `store_id`='$store_id' AND `key`='wallee_notification_url';";
-		$db->query($query);
+		$space_id = $this->registry->get('config')->get('wallee_space_id');
+		\Wallee\Service\Webhook::instance($this->registry)->synchronize($space_id, $saved, $generated);
 		$this->registry->get('config')->set('wallee_notification_url', $generated);
+
+		return $generated;
 	}
 
 	public function log($message, $level = self::LOG_DEBUG){

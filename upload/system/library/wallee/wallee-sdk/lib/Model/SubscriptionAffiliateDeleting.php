@@ -96,7 +96,7 @@ class SubscriptionAffiliateDeleting extends SubscriptionAffiliateDeleted
      * @param mixed[] $data Associated array of property values
      *                      initializing the model
      */
-    public function __construct(array $data = null)
+    public function __construct(?array $data = null)
     {
         parent::__construct($data);
 
@@ -198,7 +198,7 @@ class SubscriptionAffiliateDeleting extends SubscriptionAffiliateDeleted
      *
      * @return boolean
      */
-    public function offsetExists($offset)
+    public function offsetExists($offset): bool
     {
         return isset($this->container[$offset]);
     }
@@ -210,7 +210,7 @@ class SubscriptionAffiliateDeleting extends SubscriptionAffiliateDeleted
      *
      * @return mixed
      */
-    public function offsetGet($offset)
+    public function offsetGet($offset): mixed
     {
         return isset($this->container[$offset]) ? $this->container[$offset] : null;
     }
@@ -223,7 +223,7 @@ class SubscriptionAffiliateDeleting extends SubscriptionAffiliateDeleted
      *
      * @return void
      */
-    public function offsetSet($offset, $value)
+    public function offsetSet($offset, $value): void
     {
         if (is_null($offset)) {
             $this->container[] = $value;
@@ -239,7 +239,7 @@ class SubscriptionAffiliateDeleting extends SubscriptionAffiliateDeleted
      *
      * @return void
      */
-    public function offsetUnset($offset)
+    public function offsetUnset($offset): void
     {
         unset($this->container[$offset]);
     }

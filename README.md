@@ -1,19 +1,37 @@
 
 
-# OpenCart 3.0
+# OpenCart 3.0 community fork
+
+[![PHP compatibility](https://github.com/AlfMueller/OpenCart-3.0/actions/workflows/php-compatibility.yml/badge.svg)](https://github.com/AlfMueller/OpenCart-3.0/actions/workflows/php-compatibility.yml)
 
 This repository contains the OpenCart  wallee payment module that enables the shop to process payments with [wallee](https://www.wallee.com).
+
+This is an unofficial, community-maintained fork. Its primary compatibility
+target is OpenCart 3.0.3.8 running on PHP 8.4.
 
 ##### To use this extension, a [wallee](https://app-wallee.com/user/signup) account is required.
 
 ## Requirements
 
-* [Opencart](https://www.opencart.com/) 3.0.x (supported up to version 3.0.4)
-* [PHP](http://php.net/) 5.6 or later
+* [OpenCart](https://www.opencart.com/) 3.0.3.8
+* PHP 8.2, 8.3, or 8.4
 
 > **Note:**
 > Support for OpenCart **3.0.5 and later versions** is not available in this module.  
 Please contact **wallee** to discuss available options for newer OpenCart versions.
+
+## Development
+
+Run all local checks with Composer:
+
+```bash
+composer install
+composer check
+```
+
+The checks lint every PHP file with all runtime warnings enabled and exercise
+the webhook URL migration scenarios. GitHub Actions runs them on PHP 8.2, 8.3,
+and 8.4.
 
 ## Documentation
 

@@ -134,7 +134,7 @@ class SubscriptionProductVersionRetirement implements ModelInterface, ArrayAcces
      * @param mixed[] $data Associated array of property values
      *                      initializing the model
      */
-    public function __construct(array $data = null)
+    public function __construct(?array $data = null)
     {
         
         $this->container['created_on'] = isset($data['created_on']) ? $data['created_on'] : null;
@@ -423,7 +423,7 @@ class SubscriptionProductVersionRetirement implements ModelInterface, ArrayAcces
      *
      * @return boolean
      */
-    public function offsetExists($offset)
+    public function offsetExists($offset): bool
     {
         return isset($this->container[$offset]);
     }
@@ -435,7 +435,7 @@ class SubscriptionProductVersionRetirement implements ModelInterface, ArrayAcces
      *
      * @return mixed
      */
-    public function offsetGet($offset)
+    public function offsetGet($offset): mixed
     {
         return isset($this->container[$offset]) ? $this->container[$offset] : null;
     }
@@ -448,7 +448,7 @@ class SubscriptionProductVersionRetirement implements ModelInterface, ArrayAcces
      *
      * @return void
      */
-    public function offsetSet($offset, $value)
+    public function offsetSet($offset, $value): void
     {
         if (is_null($offset)) {
             $this->container[] = $value;
@@ -464,7 +464,7 @@ class SubscriptionProductVersionRetirement implements ModelInterface, ArrayAcces
      *
      * @return void
      */
-    public function offsetUnset($offset)
+    public function offsetUnset($offset): void
     {
         unset($this->container[$offset]);
     }

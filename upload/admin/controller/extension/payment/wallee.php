@@ -113,6 +113,7 @@ class ControllerExtensionPaymentWallee extends AbstractController {
 	
 	private function persistStoreSettings(array $global, array $store){
 		$newSettings = array_merge($global, $store);
+		$currentSettings = $this->model_setting_setting->getSetting('wallee', $store['id']);
 		
 		// preserve migration state
 		if($this->config->has('wallee_migration_version')) {
@@ -121,17 +122,34 @@ class ControllerExtensionPaymentWallee extends AbstractController {
 		}
 		
 		// preserve manual tasks
-		$newSettings[\Wallee\Service\ManualTask::CONFIG_KEY] = WalleeVersionHelper::getPersistableSetting(
-				$this->model_setting_setting->getSetting(\Wallee\Service\ManualTask::CONFIG_KEY, $store['id']), 0);
+		$newSettings[\Wallee\Service\ManualTask::CONFIG_KEY] = isset($currentSettings[\Wallee\Service\ManualTask::CONFIG_KEY])
+				? (int) $currentSettings[\Wallee\Service\ManualTask::CONFIG_KEY]
+				: 0;
 		// preserve notification url
-		$newSettings['wallee_notification_url'] = WalleeVersionHelper::getPersistableSetting(
-				$this->model_setting_setting->getSetting('wallee_notification_url', $store['id']), null);
+		$newSettings['wallee_notification_url'] = isset($currentSettings['wallee_notification_url'])
+				&& is_string($currentSettings['wallee_notification_url'])
+				? $currentSettings['wallee_notification_url']
+				: null;
 		
 		// set directly accessible settings required for synchronization, reload according to new settings
 		if ($store['wallee_status']) {
 			$this->config->set('wallee_application_key', $global['wallee_application_key']);
 			$this->config->set('wallee_user_id', $global['wallee_user_id']);
+			$this->config->set('wallee_space_id', $store['wallee_space_id']);
+			$this->config->set('config_store_id', (int) $store['id']);
+			$this->config->set('wallee_notification_url', $newSettings['wallee_notification_url']);
+
+			if ((int) $store['id'] !== 0) {
+				$storeConfig = $this->model_setting_setting->getSetting('config', $store['id']);
+				foreach (array('config_url', 'config_ssl', 'config_secure') as $key) {
+					if (isset($storeConfig[$key])) {
+						$this->config->set($key, $storeConfig[$key]);
+					}
+				}
+			}
+
 			$this->synchronize($store['wallee_space_id']);
+			$newSettings['wallee_notification_url'] = $this->config->get('wallee_notification_url');
 		}
 		
 		$newSettings['wallee_download_invoice'] = isset($store['wallee_download_invoice']);

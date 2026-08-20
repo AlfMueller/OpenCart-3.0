@@ -1,0 +1,27 @@
+{
+    "name": "alfmueller/opencart-wallee",
+    "description": "Community-maintained wallee payment module for OpenCart 3.0.3.8 on modern PHP versions.",
+    "type": "opencart-extension",
+    "license": "Apache-2.0",
+    "require": {
+        "php": "^8.2"
+    },
+    "require-dev": {
+        "phpcompatibility/php-compatibility": "^10.0.0@dev"
+    },
+    "config": {
+        "allow-plugins": {
+            "dealerdirect/phpcodesniffer-composer-installer": true
+        }
+    },
+    "scripts": {
+        "lint": "@php tests/lint.php",
+        "compatibility": "phpcs --standard=PHPCompatibility --runtime-set testVersion 8.2-8.4 --extensions=php upload",
+        "test": "@php tests/WebhookSynchronizationTest.php",
+        "check": [
+            "@lint",
+            "@compatibility",
+            "@test"
+        ]
+    }
+}
